@@ -1,0 +1,320 @@
+"""Repository pattern: única camada que conhece SQL (seção 3.4).
+
+Cada classe isola o acesso a uma tabela/agregado. Trocar SQLite por outro
+banco no futuro significa reescrever só este arquivo — o resto do app
+trabalha com os dataclasses de `models.py`.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from dataclasses import asdict
+
+from database.database import Database
+from database.models import (
+    Board,
+    Evaluation,
+    EvaluationResult,
+    EventLogEntry,
+    MonitoredSample,
+    Operator,
+    PowerStep,
+    TestParameterConfig,
+    TestSession,
+    TestSessionStatus,
+)
+
+
+class OperatorRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def get_or_create(self, name: str) -> Operator:
+        conn = self._db.connection
+        row = conn.execute("SELECT * FROM operators WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            cursor = conn.execute("INSERT INTO operators (name) VALUES (?)", (name,))
+            conn.commit()
+            row = conn.execute("SELECT * FROM operators WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return self._to_model(row)
+
+    def list_all(self) -> list[Operator]:
+        rows = self._db.connection.execute("SELECT * FROM operators ORDER BY name").fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> Operator:
+        return Operator(id=row["id"], name=row["name"], created_at=row["created_at"])
+
+
+class BoardRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def get_or_create(self, code: str, part_number: str, revision: str) -> Board:
+        conn = self._db.connection
+        row = conn.execute(
+            "SELECT * FROM boards WHERE code = ? AND part_number = ? AND revision = ?",
+            (code, part_number, revision),
+        ).fetchone()
+        if row is None:
+            cursor = conn.execute(
+                "INSERT INTO boards (code, part_number, revision) VALUES (?, ?, ?)",
+                (code, part_number, revision),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM boards WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return self._to_model(row)
+
+    def list_all(self) -> list[Board]:
+        rows = self._db.connection.execute("SELECT * FROM boards ORDER BY code").fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> Board:
+        return Board(
+            id=row["id"],
+            code=row["code"],
+            part_number=row["part_number"],
+            revision=row["revision"],
+            created_at=row["created_at"],
+        )
+
+
+class TestParameterConfigRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def create(self, config: TestParameterConfig) -> TestParameterConfig:
+        conn = self._db.connection
+        sequence_json = json.dumps([asdict(step) for step in config.power_sequence])
+        cursor = conn.execute(
+            """
+            INSERT INTO test_parameter_configs
+                (board_id, name, nominal_voltage, voltage_min, voltage_max,
+                 current_max, test_duration_s, power_sequence_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                config.board_id,
+                config.name,
+                config.nominal_voltage,
+                config.voltage_min,
+                config.voltage_max,
+                config.current_max,
+                config.test_duration_s,
+                sequence_json,
+            ),
+        )
+        conn.commit()
+        return self.get(cursor.lastrowid)
+
+    def get(self, config_id: int) -> TestParameterConfig:
+        row = self._db.connection.execute(
+            "SELECT * FROM test_parameter_configs WHERE id = ?", (config_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"TestParameterConfig {config_id} não encontrado.")
+        return self._to_model(row)
+
+    def list_for_board(self, board_id: int) -> list[TestParameterConfig]:
+        rows = self._db.connection.execute(
+            "SELECT * FROM test_parameter_configs WHERE board_id = ? ORDER BY created_at DESC",
+            (board_id,),
+        ).fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> TestParameterConfig:
+        steps = [PowerStep(**step) for step in json.loads(row["power_sequence_json"])]
+        return TestParameterConfig(
+            id=row["id"],
+            board_id=row["board_id"],
+            name=row["name"],
+            nominal_voltage=row["nominal_voltage"],
+            voltage_min=row["voltage_min"],
+            voltage_max=row["voltage_max"],
+            current_max=row["current_max"],
+            test_duration_s=row["test_duration_s"],
+            power_sequence=steps,
+            created_at=row["created_at"],
+        )
+
+
+class TestSessionRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def create(self, session: TestSession) -> TestSession:
+        conn = self._db.connection
+        cursor = conn.execute(
+            """
+            INSERT INTO test_sessions
+                (board_id, serial_number, operator_id, test_parameter_config_id,
+                 config_snapshot_json, production_order, observations, status, started_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session.board_id,
+                session.serial_number,
+                session.operator_id,
+                session.test_parameter_config_id,
+                session.config_snapshot_json,
+                session.production_order,
+                session.observations,
+                session.status.value,
+                session.started_at,
+            ),
+        )
+        conn.commit()
+        return self.get(cursor.lastrowid)
+
+    def update_status(
+        self, session_id: int, status: TestSessionStatus, finished_at: str | None = None
+    ) -> None:
+        conn = self._db.connection
+        conn.execute(
+            "UPDATE test_sessions SET status = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?",
+            (status.value, finished_at, session_id),
+        )
+        conn.commit()
+
+    def get(self, session_id: int) -> TestSession:
+        row = self._db.connection.execute(
+            "SELECT * FROM test_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"TestSession {session_id} não encontrado.")
+        return self._to_model(row)
+
+    def list_recent(self, limit: int = 50) -> list[TestSession]:
+        rows = self._db.connection.execute(
+            "SELECT * FROM test_sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> TestSession:
+        return TestSession(
+            id=row["id"],
+            board_id=row["board_id"],
+            serial_number=row["serial_number"],
+            operator_id=row["operator_id"],
+            test_parameter_config_id=row["test_parameter_config_id"],
+            config_snapshot_json=row["config_snapshot_json"],
+            production_order=row["production_order"],
+            observations=row["observations"],
+            status=TestSessionStatus(row["status"]),
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            created_at=row["created_at"],
+        )
+
+
+class MonitoredSampleRepository:
+    """Único repository chamado em alta frequência: sempre em lote (seção 10)."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def insert_batch(self, samples: list[MonitoredSample]) -> None:
+        rows = [
+            (s.test_session_id, s.timestamp, s.step_index, s.voltage_measured, s.current_measured)
+            for s in samples
+        ]
+        self._db.executemany_batch(
+            """
+            INSERT INTO monitored_samples
+                (test_session_id, timestamp, step_index, voltage_measured, current_measured)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+    def list_for_session(self, test_session_id: int) -> list[MonitoredSample]:
+        rows = self._db.connection.execute(
+            "SELECT * FROM monitored_samples WHERE test_session_id = ? ORDER BY id",
+            (test_session_id,),
+        ).fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> MonitoredSample:
+        return MonitoredSample(
+            id=row["id"],
+            test_session_id=row["test_session_id"],
+            timestamp=row["timestamp"],
+            step_index=row["step_index"],
+            voltage_measured=row["voltage_measured"],
+            current_measured=row["current_measured"],
+        )
+
+
+class EvaluationRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def create(self, evaluation: Evaluation) -> Evaluation:
+        conn = self._db.connection
+        cursor = conn.execute(
+            """
+            INSERT INTO evaluations (test_session_id, operator_id, result, comment)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                evaluation.test_session_id,
+                evaluation.operator_id,
+                evaluation.result.value,
+                evaluation.comment,
+            ),
+        )
+        conn.commit()
+        return self.get_for_session(evaluation.test_session_id)
+
+    def get_for_session(self, test_session_id: int) -> Evaluation | None:
+        row = self._db.connection.execute(
+            "SELECT * FROM evaluations WHERE test_session_id = ?", (test_session_id,)
+        ).fetchone()
+        return self._to_model(row) if row is not None else None
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> Evaluation:
+        return Evaluation(
+            id=row["id"],
+            test_session_id=row["test_session_id"],
+            operator_id=row["operator_id"],
+            result=EvaluationResult(row["result"]),
+            comment=row["comment"],
+            evaluated_at=row["evaluated_at"],
+        )
+
+
+class EventLogRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def add(self, entry: EventLogEntry) -> None:
+        conn = self._db.connection
+        conn.execute(
+            "INSERT INTO event_log (test_session_id, level, source, message) VALUES (?, ?, ?, ?)",
+            (entry.test_session_id, entry.level, entry.source, entry.message),
+        )
+        conn.commit()
+
+    def list_for_session(self, test_session_id: int) -> list[EventLogEntry]:
+        rows = self._db.connection.execute(
+            "SELECT * FROM event_log WHERE test_session_id = ? ORDER BY id",
+            (test_session_id,),
+        ).fetchall()
+        return [self._to_model(r) for r in rows]
+
+    @staticmethod
+    def _to_model(row: sqlite3.Row) -> EventLogEntry:
+        return EventLogEntry(
+            id=row["id"],
+            test_session_id=row["test_session_id"],
+            timestamp=row["timestamp"],
+            level=row["level"],
+            source=row["source"],
+            message=row["message"],
+        )

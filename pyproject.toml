@@ -7,6 +7,10 @@ requires-python = ">=3.10,<3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Os testes usam apenas funções, nunca classes. Sem isso, o pytest tenta
+# coletar TestState/TestSession/TestParameterConfig (nomes de domínio que
+# começam com "Test") como classes de teste e emite warnings falsos.
+python_classes = ["*NoClassBasedTests"]
 
 [tool.mypy]
 python_version = "3.10"
