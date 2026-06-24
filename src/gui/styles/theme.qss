@@ -1,0 +1,100 @@
+/* Folha de estilo única do FCT Avibras Aeroco (seção 11.2).
+   Os tokens {{...}} são substituídos em tempo de carregamento por
+   gui/styles/__init__.py a partir de config/app_config.yaml (branding) —
+   nunca hardcode cor aqui fora dos tokens, ou a paleta deixa de ser
+   parametrizável sem alterar código. */
+
+QWidget {
+    background-color: {{NAVY_PRIMARY}};
+    color: {{TEXT_ON_NAVY}};
+    font-family: "Segoe UI", sans-serif;
+    font-size: 11pt;
+}
+
+QGroupBox {
+    background-color: {{NAVY_SECONDARY}};
+    border: 1px solid {{NAVY_SECONDARY}};
+    border-radius: 6px;
+    margin-top: 12px;
+    font-weight: bold;
+    padding: 10px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: {{ORANGE_ACCENT}};
+}
+
+QPushButton {
+    background-color: {{ORANGE_ACCENT}};
+    color: {{NAVY_PRIMARY}};
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: {{ORANGE_ACCENT_HOVER}};
+}
+
+QPushButton:disabled {
+    background-color: #5A5F66;
+    color: #ADB3BB;
+}
+
+QPushButton#dangerButton {
+    background-color: {{COLOR_FAIL}};
+    color: {{TEXT_ON_NAVY}};
+}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QTableWidget {
+    background-color: {{TEXT_ON_NAVY}};
+    color: {{NAVY_PRIMARY}};
+    border: 1px solid {{NAVY_SECONDARY}};
+    border-radius: 3px;
+    padding: 4px;
+}
+
+QTabWidget::pane {
+    border: 1px solid {{NAVY_SECONDARY}};
+}
+
+QTabBar::tab {
+    background-color: {{NAVY_SECONDARY}};
+    color: {{TEXT_ON_NAVY}};
+    padding: 8px 16px;
+}
+
+QTabBar::tab:selected {
+    background-color: {{ORANGE_ACCENT}};
+    color: {{NAVY_PRIMARY}};
+    font-weight: bold;
+}
+
+QScrollArea {
+    border: none;
+}
+
+QSplitter::handle {
+    background-color: {{NAVY_SECONDARY}};
+}
+
+/* Painel de leitura estilo VFD - ver gui/widgets/segment_display.py */
+QLabel#segmentDisplay {
+    background-color: #06101F;
+    color: {{ORANGE_ACCENT}};
+    border: 2px solid {{NAVY_SECONDARY}};
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+
+/* Badges de status - ver gui/widgets/status_badge.py */
+QLabel[statusBadge="true"] {
+    border-radius: 10px;
+    padding: 4px 10px;
+    font-weight: bold;
+    font-size: 9pt;
+}
