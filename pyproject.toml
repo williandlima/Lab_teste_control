@@ -1,0 +1,14 @@
+[project]
+name = "fct-avibras"
+version = "0.1.0"
+description = "Sistema de Teste Funcional (FCT) - Avibras Aeroco"
+requires-python = ">=3.10,<3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+ignore_missing_imports = true
