@@ -1,0 +1,60 @@
+# Configuração externa do FCT Avibras Aeroco.
+# Nenhum destes valores deve ser hardcoded em código-fonte (NFR seção 5).
+# Caminhos relativos a "~" são resolvidos para a pasta do usuário Windows atual.
+
+paths:
+  # Pasta-base criada automaticamente no primeiro acesso, se não existir.
+  data_dir: "~/LabTest"
+  database_subdir: "db"
+  logs_subdir: "logs"
+  exports_subdir: "exports"
+  database_filename: "fct_avibras.db"
+
+serial:
+  # Nenhum valor aqui é enviado por comando remoto à fonte: a E363x só aceita
+  # baud/paridade/bits via painel frontal. Estes valores devem refletir
+  # exatamente o que está configurado fisicamente no instrumento.
+  port: null              # null = autodetectar via VID/PID; senão ex. "COM3"
+  vid: 0x0403              # VID típico de adaptador USB-serial FTDI (ajustar conforme hardware real)
+  pid: 0x6001
+  baudrate: 9600
+  bytesize: 8
+  parity: "N"              # N=8 bits / E=7 bits / O=7 bits, conforme manual E363x
+  stopbits: 2               # FIXO na E363x - não usar 1 (causa erro -511 framing error)
+  timeout_s: 2.0
+  write_timeout_s: 2.0
+  force_dtr_high: true     # necessário p/ cabo 3 fios: instrumento exige DSR=true sem handshake de hardware
+
+reconnection:
+  max_retries: 3
+  backoff_base_s: 1.0
+  backoff_multiplier: 2.0
+  heartbeat_interval_s: 5.0
+
+test_defaults:
+  polling_rate_hz: 1.5
+  stabilization_timeout_s: 10.0
+  stabilization_tolerance_v: 0.05
+  monitoring_consecutive_failures_limit: 5
+  sample_batch_size: 20
+  sample_batch_interval_s: 5.0
+  live_buffer_maxlen: 3600   # ~1h de pontos a 1Hz
+
+logging:
+  level: "INFO"
+  serial_io_level: "DEBUG"
+  max_bytes: 5_242_880       # 5 MB por arquivo de log
+  backup_count: 5
+  ui_log_buffer_lines: 200
+
+branding:
+  company_name: "Avibras Aeroco"
+  logo_path: "assets/branding/avibras_aeroco_logo.png"
+  color_primary_navy: "#0A1F44"
+  color_secondary_navy: "#14315C"
+  color_accent_orange: "#FF7A29"
+  color_accent_orange_hover: "#FF9248"
+  color_text_on_navy: "#F5F7FA"
+  color_pass: "#2ECC71"
+  color_fail: "#E74C3C"
+  color_warning: "#F1C40F"

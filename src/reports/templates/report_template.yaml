@@ -1,0 +1,61 @@
+# Layout do relatório de FCT — separado dos dados (reports/report_data.py)
+# e da lógica de geração (excel_report.py/word_report.py/pdf_report.py).
+# Trocar textos/rótulos aqui não exige tocar em código.
+
+title: "Relatório de Teste Funcional (FCT)"
+subtitle: "{company_name}"
+
+sections:
+  identification:
+    heading: "Identificação"
+    fields:
+      - ["Sessão", "#{session_id}"]
+      - ["Placa (código)", "{board_code}"]
+      - ["Part Number", "{board_part_number}"]
+      - ["Revisão", "{board_revision}"]
+      - ["Número de série", "{serial_number}"]
+      - ["Ordem de produção", "{production_order}"]
+      - ["Operador", "{operator_name}"]
+      - ["Início", "{started_at}"]
+      - ["Término", "{finished_at}"]
+
+  parameters:
+    heading: "Parâmetros do teste"
+    fields:
+      - ["Tensão nominal", "{nominal_voltage} V"]
+      - ["Tensão mínima", "{voltage_min} V"]
+      - ["Tensão máxima", "{voltage_max} V"]
+      - ["Corrente máxima", "{current_max} A"]
+      - ["Duração do teste", "{test_duration_s} s"]
+
+  execution:
+    heading: "Execução"
+    fields:
+      - ["Status técnico (state machine)", "{session_status}"]
+      - ["Amostras coletadas", "{sample_count}"]
+      - ["Tensão observada (mín/máx)", "{voltage_min_observed} V / {voltage_max_observed} V"]
+      - ["Corrente observada (mín/máx)", "{current_min_observed} A / {current_max_observed} A"]
+
+  evaluation:
+    heading: "Avaliação manual do operador"
+    fields:
+      - ["Resultado", "{evaluation_result}"]
+      - ["Avaliado por", "{evaluation_operator_name}"]
+      - ["Data da avaliação", "{evaluated_at}"]
+      - ["Comentário", "{evaluation_comment}"]
+
+  samples_table:
+    heading: "Amostras (resumo)"
+    columns: ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)"]
+    max_rows: 200
+
+  events_table:
+    heading: "Log de eventos"
+    columns: ["Timestamp", "Nível", "Origem", "Mensagem"]
+
+result_colors:
+  APPROVED: "color_pass"
+  REJECTED: "color_fail"
+  OBSERVATION: "color_warning"
+
+footer: "Gerado automaticamente pelo sistema FCT — {company_name}"
