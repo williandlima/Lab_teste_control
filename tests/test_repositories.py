@@ -54,7 +54,7 @@ def test_board_get_or_create_distinguishes_revisions(db: Database) -> None:
 def test_test_parameter_config_roundtrips_power_sequence(db: Database) -> None:
     board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
     repo = TestParameterConfigRepository(db)
-    created = repo.create(
+    created = repo.save(
         TestParameterConfig(
             id=None,
             board_id=board.id,
@@ -70,6 +70,43 @@ def test_test_parameter_config_roundtrips_power_sequence(db: Database) -> None:
     fetched = repo.get(created.id)
     assert fetched.power_sequence == [PowerStep(5.0, 1.0, 10.0), PowerStep(12.0, 2.0, 50.0)]
     assert repo.list_for_board(board.id) == [fetched]
+
+
+def test_test_parameter_config_save_overwrites_same_name_instead_of_duplicating(
+    db: Database,
+) -> None:
+    """Salvar de novo com o mesmo nome deve atualizar, não duplicar (semântica Word)."""
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    repo = TestParameterConfigRepository(db)
+    first = repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Padrao 12V",
+            nominal_voltage=12.0,
+            voltage_min=11.5,
+            voltage_max=12.5,
+            current_max=2.0,
+            test_duration_s=60.0,
+            power_sequence=[],
+        )
+    )
+    second = repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Padrao 12V",
+            nominal_voltage=13.0,
+            voltage_min=12.5,
+            voltage_max=13.5,
+            current_max=3.0,
+            test_duration_s=90.0,
+            power_sequence=[PowerStep(13.0, 3.0, 90.0)],
+        )
+    )
+    assert second.id == first.id
+    assert second.nominal_voltage == 13.0
+    assert repo.list_for_board(board.id) == [second]
 
 
 def test_monitored_sample_batch_insert_and_list(db: Database) -> None:

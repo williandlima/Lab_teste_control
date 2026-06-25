@@ -101,15 +101,29 @@ class TestParameterConfigRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def create(self, config: TestParameterConfig) -> TestParameterConfig:
+    def save(self, config: TestParameterConfig) -> TestParameterConfig:
+        """Grava a configuração como um único registro por (board_id, name).
+
+        Salvar de novo com o mesmo nome atualiza o registro existente em vez
+        de duplicá-lo — a mesma semântica de "Ctrl+S" do Word sobre o mesmo
+        arquivo. O `INSERT ... ON CONFLICT` é atômico: não há janela entre
+        checar existência e gravar.
+        """
         conn = self._db.connection
         sequence_json = json.dumps([asdict(step) for step in config.power_sequence])
-        cursor = conn.execute(
+        conn.execute(
             """
             INSERT INTO test_parameter_configs
                 (board_id, name, nominal_voltage, voltage_min, voltage_max,
                  current_max, test_duration_s, power_sequence_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (board_id, name) DO UPDATE SET
+                nominal_voltage = excluded.nominal_voltage,
+                voltage_min = excluded.voltage_min,
+                voltage_max = excluded.voltage_max,
+                current_max = excluded.current_max,
+                test_duration_s = excluded.test_duration_s,
+                power_sequence_json = excluded.power_sequence_json
             """,
             (
                 config.board_id,
@@ -123,7 +137,11 @@ class TestParameterConfigRepository:
             ),
         )
         conn.commit()
-        return self.get(cursor.lastrowid)
+        row = conn.execute(
+            "SELECT * FROM test_parameter_configs WHERE board_id IS ? AND name = ?",
+            (config.board_id, config.name),
+        ).fetchone()
+        return self._to_model(row)
 
     def get(self, config_id: int) -> TestParameterConfig:
         row = self._db.connection.execute(

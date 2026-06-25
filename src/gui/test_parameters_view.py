@@ -212,7 +212,7 @@ class TestParametersView(QtWidgets.QWidget):
             test_duration_s=self.test_duration_spin.value(),
             power_sequence=power_sequence,
         )
-        saved_config = self._config_repo.create(config)
+        saved_config = self._config_repo.save(config)
         self.refresh_history()
 
         run_config = TestRunConfig(
