@@ -29,6 +29,22 @@ source .venv/bin/activate     # Linux/Mac
 pip install -r requirements.txt
 ```
 
+### 2.1 Instalação automática (VSCode)
+
+O repositório já traz scripts e configuração de VSCode para criar a venv e
+instalar as dependências em um único passo:
+
+```bash
+bash scripts/setup_env.sh        # Linux/Mac
+powershell -ExecutionPolicy Bypass -File scripts\setup_env.ps1   # Windows
+```
+
+No VSCode, abra a pasta do projeto e rode `Ctrl+Shift+P` →
+**Run Task** → **FCT: Preparar ambiente (venv + dependências)**. Em seguida
+selecione o interpretador com `Ctrl+Shift+P` → **Python: Select Interpreter**
+→ `.venv`. As tasks **FCT: Rodar testes (pytest)** e **FCT: Rodar aplicação**
+já usam o Python da venv automaticamente (ver `.vscode/tasks.json`).
+
 `requirements.txt` já traz tudo: PySide6 (GUI), pyserial, PyYAML,
 openpyxl/python-docx/reportlab (relatórios) e pytest (testes).
 

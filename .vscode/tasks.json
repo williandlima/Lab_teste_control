@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "FCT: Preparar ambiente (venv + dependências)",
+            "type": "shell",
+            "command": "bash scripts/setup_env.sh",
+            "windows": {
+                "command": "powershell -ExecutionPolicy Bypass -File scripts\\setup_env.ps1"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "FCT: Rodar testes (pytest)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python -m pytest",
+            "windows": {
+                "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe -m pytest"
+            },
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "FCT: Rodar aplicação",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python main.py",
+            "windows": {
+                "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe main.py"
+            },
+            "problemMatcher": []
+        }
+    ]
+}
