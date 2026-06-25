@@ -42,6 +42,14 @@ class OperatorRepository:
         rows = self._db.connection.execute("SELECT * FROM operators ORDER BY name").fetchall()
         return [self._to_model(r) for r in rows]
 
+    def get(self, operator_id: int) -> Operator:
+        row = self._db.connection.execute(
+            "SELECT * FROM operators WHERE id = ?", (operator_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Operator {operator_id} não encontrado.")
+        return self._to_model(row)
+
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Operator:
         return Operator(id=row["id"], name=row["name"], created_at=row["created_at"])
@@ -69,6 +77,14 @@ class BoardRepository:
     def list_all(self) -> list[Board]:
         rows = self._db.connection.execute("SELECT * FROM boards ORDER BY code").fetchall()
         return [self._to_model(r) for r in rows]
+
+    def get(self, board_id: int) -> Board:
+        row = self._db.connection.execute(
+            "SELECT * FROM boards WHERE id = ?", (board_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Board {board_id} não encontrado.")
+        return self._to_model(row)
 
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Board:
