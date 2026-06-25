@@ -122,3 +122,12 @@ src/
   reports/                Geração de relatórios Excel/Word/PDF
 tests/                    Suíte pytest
 ```
+
+## Controle de Equipamentos (empréstimo + alerta de calibração)
+
+Pacote independente em `controle_equipamentos/` — sem relação com o app FCT
+acima, mora no mesmo repositório por conveniência. Lê a planilha de cadastro
+de equipamentos e um log de empréstimos, calcula responsável/local atual de
+cada equipamento e manda e-mail de alerta (calibração vencendo, empréstimo
+atrasado) via SMTP interno, chamado uma vez por dia pelo Task Scheduler do
+Windows. Ver `controle_equipamentos/README.md`.

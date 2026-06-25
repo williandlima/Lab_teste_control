@@ -1,0 +1,80 @@
+# Configuração do Controle de Equipamentos (empréstimo + alerta de calibração).
+#
+# Campos marcados com "# AJUSTAR" precisam ser confirmados com a TI/usuário
+# antes de colocar em produção — veja controle_equipamentos/README.md.
+
+planilhas:
+  # Planilha principal de cadastro de equipamentos (fonte: setor, nunca é
+  # reescrita pelo script — leitura apenas).
+  equipamentos_path: "\\\\servidor\\compartilhamento\\Equipamentos.xlsx"  # AJUSTAR
+  equipamentos_sheet: null  # null = primeira aba da planilha
+
+  # Log de empréstimos: arquivo só de inserção (nunca editar linha existente).
+  emprestimos_path: "\\\\servidor\\compartilhamento\\emprestimos.xlsx"  # AJUSTAR
+  emprestimos_sheet: null
+
+  # Pasta local/temporária onde as planilhas são copiadas antes de ler, para
+  # não travar/corromper os arquivos de rede usados por todo mundo.
+  pasta_temp: "~/ControleEquipamentos/tmp"
+
+# Nomes das colunas na planilha de equipamentos. Ajuste aqui se o cabeçalho
+# real usar nomes diferentes — nenhum outro módulo depende do texto exato.
+colunas_equipamentos:
+  codigo: "Código"
+  descricao: "Descrição"
+  responsavel_padrao: "Responsável"
+  local_padrao: "Local"
+  status: "Status"
+  # Coluna de data da próxima calibração (opção A do design). Se a planilha
+  # ainda não tiver essa coluna, deixe null: o script cai automaticamente
+  # para a opção B (alerta só quando o texto da coluna "status" mudar para
+  # "Calibração Vencida"/"Aguardando Calibração", sem antecedência).
+  proxima_calibracao: "Próxima Calibração"
+  # Opcional: e-mail do responsável, usado como destinatário direto. Se a
+  # coluna não existir (ou vier vazia), o alerta cai no destinatario_admin.
+  email_responsavel: "E-mail"
+
+colunas_emprestimos:
+  data_hora: "Data/Hora"
+  codigo: "Código do equipamento"
+  tipo_evento: "Tipo de evento"
+  responsavel: "Responsável"
+  destino: "Destino/Local"
+  previsao_devolucao: "Previsão de devolução"
+  observacao: "Observação"
+
+# Equipamentos com esses status nunca geram alerta (de calibração ou de
+# empréstimo), mesmo que tenham data de calibração vencida.
+status_ignorados:
+  - "Isento"
+  - "Sucata"
+  - "Fora de Uso"
+  - "Desaparecido"
+
+# Faixas de antecedência para o alerta de calibração, em dias restantes:
+#   dias_restantes > verde            -> Verde   (sem urgência)
+#   amarelo < dias_restantes <= verde -> Amarelo (atenção)
+#   urgente <= dias_restantes <= amarelo -> Urgente
+#   dias_restantes < urgente          -> Vermelho (vencida)
+limiares_dias:
+  verde: 90
+  amarelo: 30
+  urgente: 0
+
+smtp:
+  host: "smtp.empresa.local"  # AJUSTAR com a TI
+  port: 25
+  usar_tls: false
+  # Deixe null se o SMTP interno libera por IP de origem (sem login).
+  # Se exigir autenticação, preencha usuario aqui e a senha via variável de
+  # ambiente CTRL_EQUIP_SMTP_SENHA (nunca em texto puro no arquivo).
+  usuario: null  # AJUSTAR
+  remetente: "controle.equipamentos@empresa.com"  # AJUSTAR
+  # Recebe cópia de todo alerta e é o destinatário de fallback quando o
+  # equipamento não tem responsável/e-mail cadastrado.
+  destinatario_admin: "qualidade@empresa.com"  # AJUSTAR
+
+estado:
+  estado_alertas_path: "~/ControleEquipamentos/estado_alertas.json"
+  log_path: "~/ControleEquipamentos/log.txt"
+  relatorio_html_path: "~/ControleEquipamentos/relatorio.html"

@@ -5,8 +5,8 @@ description = "Sistema de Teste Funcional (FCT) - Avibras Aeroco"
 requires-python = ">=3.10,<3.12"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "controle_equipamentos/tests"]
+pythonpath = ["src", "."]
 # Os testes usam apenas funções, nunca classes. Sem isso, o pytest tenta
 # coletar TestState/TestSession/TestParameterConfig (nomes de domínio que
 # começam com "Test") como classes de teste e emite warnings falsos.
