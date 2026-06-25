@@ -3,12 +3,13 @@
 O sistema nunca decide Aprovado/Reprovado automaticamente: esta tela só
 mostra o que foi medido (resumo + min/max observados) e exige que o
 operador escolha o resultado e, opcionalmente, registre um comentário.
-Só grava no banco e libera o state machine para `COMPLETED` quando o
-operador confirma — nunca antes.
+O status técnico da sessão (COMPLETED/ABORTED/COMM_ERROR/FAULTED) já foi
+fixado pela `main_window` no instante em que o worker terminou — reflete
+o motivo de encerramento do state machine, não o veredito do operador.
+Esta tela só grava a `Evaluation` (julgamento manual, campo separado) e
+libera o state machine via `mark_evaluated()`, nunca antes da confirmação.
 """
 from __future__ import annotations
-
-import datetime as dt
 
 from PySide6 import QtCore, QtWidgets
 
@@ -19,9 +20,8 @@ from database.models import (
     MonitoredSample,
     Operator,
     TestSession,
-    TestSessionStatus,
 )
-from database.repositories import EvaluationRepository, TestSessionRepository
+from database.repositories import EvaluationRepository
 
 
 class EvaluationView(QtWidgets.QWidget):
@@ -30,12 +30,10 @@ class EvaluationView(QtWidgets.QWidget):
     def __init__(
         self,
         evaluation_repo: EvaluationRepository,
-        session_repo: TestSessionRepository,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._evaluation_repo = evaluation_repo
-        self._session_repo = session_repo
 
         self._session: TestSession | None = None
         self._operator: Operator | None = None
@@ -158,10 +156,5 @@ class EvaluationView(QtWidgets.QWidget):
         )
 
         self._state_machine.mark_evaluated()
-        self._session_repo.update_status(
-            self._session.id,
-            TestSessionStatus.COMPLETED,
-            finished_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        )
 
         self.evaluation_submitted.emit({"evaluation": evaluation, "session": self._session})
