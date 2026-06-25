@@ -1,4 +1,4 @@
-# Sistema FCT (Functional Circuit Test) — Avibras Brioco
+# Sistema FCT (Functional Circuit Test) — Avibras Aeroco
 
 Sistema desktop de Teste Funcional para placas eletrônicas, controlando uma
 fonte programável Keysight/Agilent E363x via SCPI sobre RS-232. O resultado
