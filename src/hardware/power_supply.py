@@ -19,12 +19,17 @@ class PowerSupplyE363x(BaseSerialInstrument):
     """Driver para E3631A/E3632A/E3633A/E3634A (subset de comandos comum)."""
 
     def on_connected(self) -> None:
-        """Coloca o instrumento em modo remoto e limpa a fila de erros.
+        """Valida a comunicação ANTES de entrar em modo remoto.
 
-        `SYSTem:REMote` é obrigatório antes de qualquer outro comando
-        (seção 9.2) — sem ele, comandos subsequentes são ignorados pelo
-        painel frontal da fonte.
+        Ordem importa para não provocar o "apito constante": primeiro fazemos
+        uma sonda diagnóstica (`*CLS` + `*IDN?`) — se o framing/cabo estiver
+        errado, ela falha cedo com mensagem acionável e sem despejar uma
+        sequência de comandos que bipam um a um. Só com a identidade
+        confirmada é que `SYSTem:REMote` é enviado (obrigatório antes dos
+        demais comandos — seção 9.2) e a fila de erros é limpa.
         """
+        identity = self._transport.probe_identity()
+        _logger.info("Fonte identificada: %s", identity)
         self.scpi.write("SYSTem:REMote")
         self.scpi.clear_status()
         self.scpi.check_error()

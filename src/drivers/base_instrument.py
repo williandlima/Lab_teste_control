@@ -37,6 +37,28 @@ class BaseSerialInstrument(ABC):
     def is_connected(self) -> bool:
         return self._transport.is_open
 
+    def set_port(self, port: str | None) -> None:
+        """Define a porta COM escolhida pelo operador (prioridade sobre a config)."""
+        self._transport.set_port_override(port)
+
+    def test_connection(self) -> str:
+        """Abre a porta, sonda *IDN? e fecha — diagnóstico sem efeitos colaterais.
+
+        Não entra em modo remoto nem mexe na saída: serve para o operador
+        validar cabo/porta/parâmetros antes de iniciar um teste real. Devolve a
+        string de identificação ou propaga uma exceção tipada com a causa
+        provável (timeout vs framing). Garante o fechamento da porta mesmo em
+        falha, para não deixar o recurso preso.
+        """
+        already_open = self._transport.is_open
+        if not already_open:
+            self._transport.connect()
+        try:
+            return self._transport.probe_identity()
+        finally:
+            if not already_open:
+                self._transport.disconnect()
+
     def connect(self) -> None:
         """Abre a porta e executa a inicialização específica do instrumento."""
         self._transport.connect()

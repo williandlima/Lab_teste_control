@@ -41,10 +41,12 @@ from database.repositories import (
     TestParameterConfigRepository,
     TestSessionRepository,
 )
+from drivers.exceptions import InstrumentCommunicationError
 from gui.evaluation_view import EvaluationView
 from gui.registration_view import RegistrationView
 from gui.styles import load_theme
 from gui.test_parameters_view import TestParametersView
+from gui.widgets.header_bar import HeaderBar
 from gui.widgets.live_chart import LiveChart
 from gui.widgets.segment_display import SegmentDisplay
 from gui.widgets.status_badge import StatusBadge
@@ -74,6 +76,35 @@ class TestRunWorker(QtCore.QThread):
 
     def run(self) -> None:
         self.state_machine.run()
+
+
+class ConnectionProbeWorker(QtCore.QThread):
+    """Roda `instrument.test_connection()` fora da GUI (a sonda é bloqueante).
+
+    Emite `succeeded` com a string de identificação ou `failed` com a mensagem
+    diagnóstica já tratada (timeout vs framing), nunca um traceback cru.
+    """
+
+    succeeded = QtCore.Signal(str)
+    failed = QtCore.Signal(str)
+
+    def __init__(
+        self,
+        instrument: PowerSupplyE363x,
+        port: str,
+        parent: QtCore.QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._instrument = instrument
+        self._port = port
+
+    def run(self) -> None:
+        try:
+            self._instrument.set_port(self._port or None)
+            identity = self._instrument.test_connection()
+            self.succeeded.emit(identity)
+        except InstrumentCommunicationError as exc:
+            self.failed.emit(str(exc))
 
 
 class _MonitoringPanel(QtWidgets.QWidget):
@@ -175,10 +206,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._session: TestSession | None = None
         self._state_machine: TestStateMachine | None = None
         self._worker: TestRunWorker | None = None
+        self._probe_worker: ConnectionProbeWorker | None = None
         self._live_samples: list[Sample] = []
+        self._last_log_text = ""
 
         self.setWindowTitle(f"{app_config.branding.company_name} — FCT")
         self.setStyleSheet(load_theme(app_config.branding))
+
+        self.header = HeaderBar(app_config.branding)
+        self.header.test_connection_requested.connect(self._on_test_connection)
 
         self.registration_view = RegistrationView(self._operator_repo, self._board_repo)
         self.parameters_view = TestParametersView(self._config_repo, asdict(app_config.test_defaults))
@@ -190,6 +226,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(self.parameters_view)
         self.stack.addWidget(self.monitoring_panel)
         self.stack.addWidget(self.evaluation_view)
+        self.stack.currentChanged.connect(self._update_step_indicator)
 
         self.app_log_edit = QtWidgets.QPlainTextEdit()
         self.app_log_edit.setReadOnly(True)
@@ -197,6 +234,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         central = QtWidgets.QWidget()
         central_layout = QtWidgets.QVBoxLayout(central)
+        central_layout.addWidget(self.header)
         central_layout.addWidget(self.stack, stretch=1)
         central_layout.addWidget(QtWidgets.QLabel("Log da aplicação:"))
         central_layout.addWidget(self.app_log_edit)
@@ -206,6 +244,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.parameters_view.parameters_submitted.connect(self._on_parameters_submitted)
         self.monitoring_panel.abort_requested.connect(self._on_abort_requested)
         self.evaluation_view.evaluation_submitted.connect(self._on_evaluation_submitted)
+
+        self._update_step_indicator(self.stack.currentIndex())
 
         self._log_timer = QtCore.QTimer(self)
         self._log_timer.timeout.connect(self._refresh_log_panel)
@@ -266,9 +306,13 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.event_logged.connect(self._on_event)
         worker.finished.connect(self._on_worker_finished)
 
+        # A porta escolhida pelo operador no cabeçalho vale para o teste real.
+        self._instrument.set_port(self.header.selected_port() or None)
+
         self.monitoring_panel.reset(
             run_config.voltage_min, run_config.voltage_max, run_config.test_duration_s, run_config.current_max
         )
+        self.header.test_button.setEnabled(False)  # sem sondar a porta durante o teste
         self.stack.setCurrentWidget(self.monitoring_panel)
         worker.start()
 
@@ -317,6 +361,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._session_repo.update_status(
             self._session.id, status, finished_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
+        self.header.test_button.setEnabled(True)
+        if status == TestSessionStatus.COMM_ERROR:
+            self.header.set_connection_state(False, "Erro de comunicação durante o teste.")
 
         samples = self._sample_repo.list_for_session(self._session.id)
         self.evaluation_view.load_session(self._session, self._operator, self._state_machine, samples)
@@ -329,13 +376,54 @@ class MainWindow(QtWidgets.QMainWindow):
         self.registration_view.refresh_operator_history()
         self.stack.setCurrentWidget(self.registration_view)
 
+    _STEP_NAMES = {0: "Cadastro", 1: "Parâmetros", 2: "Monitoramento", 3: "Avaliação manual"}
+
+    def _update_step_indicator(self, index: int) -> None:
+        self.header.set_step(self._STEP_NAMES.get(index, ""))
+
+    def _on_test_connection(self, port: str) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            QtWidgets.QMessageBox.information(
+                self, "Teste em andamento", "Aguarde o término do teste para sondar a porta."
+            )
+            return
+        if self._probe_worker is not None and self._probe_worker.isRunning():
+            return
+        self.header.set_testing(True)
+        self.header.set_connection_unknown("Sondando a fonte…")
+        probe = ConnectionProbeWorker(self._instrument, port)
+        probe.succeeded.connect(self._on_probe_success)
+        probe.failed.connect(self._on_probe_failure)
+        probe.finished.connect(lambda: self.header.set_testing(False))
+        self._probe_worker = probe
+        probe.start()
+
+    def _on_probe_success(self, identity: str) -> None:
+        self.header.set_connection_state(True, f"Conectada: {identity}")
+        QtWidgets.QMessageBox.information(
+            self, "Conexão OK", f"Fonte identificada:\n{identity}"
+        )
+
+    def _on_probe_failure(self, message: str) -> None:
+        self.header.set_connection_state(False, message)
+        QtWidgets.QMessageBox.warning(self, "Falha na conexão", message)
+
     def _refresh_log_panel(self) -> None:
-        self.app_log_edit.setPlainText("\n".join(UI_LOG_BUFFER))
+        # Só redesenha quando o conteúdo muda (o deque satura em 200 linhas, então
+        # comparar por tamanho não basta): evita reescrever todo o QPlainTextEdit
+        # a cada segundo e o salto de scroll que isso causava.
+        text = "\n".join(UI_LOG_BUFFER)
+        if text == self._last_log_text:
+            return
+        self._last_log_text = text
+        self.app_log_edit.setPlainText(text)
         self.app_log_edit.verticalScrollBar().setValue(self.app_log_edit.verticalScrollBar().maximum())
 
     def closeEvent(self, event: QtCore.QEvent) -> None:
         if self._worker is not None and self._worker.isRunning():
             self._worker.wait(2000)
+        if self._probe_worker is not None and self._probe_worker.isRunning():
+            self._probe_worker.wait(3000)
         if self._instrument.is_connected:
             self._instrument.disconnect()
         super().closeEvent(event)

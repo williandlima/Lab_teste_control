@@ -14,16 +14,24 @@ serial:
   # Nenhum valor aqui é enviado por comando remoto à fonte: a E363x só aceita
   # baud/paridade/bits via painel frontal. Estes valores devem refletir
   # exatamente o que está configurado fisicamente no instrumento.
-  port: null              # null = autodetectar via VID/PID; senão ex. "COM3"
+  port: null              # null = autodetectar via VID/PID; senão ex. "COM3".
+                          # O operador também pode escolher a porta na tela (tem prioridade).
   vid: 0x0403              # VID típico de adaptador USB-serial FTDI (ajustar conforme hardware real)
   pid: 0x6001
-  baudrate: 9600
+  baudrate: 9600          # fábrica da E363x = 9600; precisa bater com o painel frontal
   bytesize: 8
   parity: "N"              # N=8 bits / E=7 bits / O=7 bits, conforme manual E363x
-  stopbits: 2               # FIXO na E363x - não usar 1 (causa erro -511 framing error)
+  stopbits: 2               # casar com o painel frontal; divergência gera -511 (framing) e apito
   timeout_s: 2.0
   write_timeout_s: 2.0
-  force_dtr_high: true     # necessário p/ cabo 3 fios: instrumento exige DSR=true sem handshake de hardware
+  # Handshake DTR/DSR: a E363x só transmite respostas enquanto vê DSR verdadeiro.
+  # Em cabo de 3 fios (TXD/RXD/GND) o ideal é fazer o jumper DTR-DSR (e RTS-CTS)
+  # no conector da fonte; erguer DTR/RTS pelo PC ajuda quando o cabo cruza essas
+  # linhas. dsrdtr/rtscts ficam False (sem controle de fluxo por hardware no PC).
+  force_dtr_high: true
+  force_rts_high: true
+  dsrdtr: false
+  rtscts: false
 
 reconnection:
   max_retries: 3

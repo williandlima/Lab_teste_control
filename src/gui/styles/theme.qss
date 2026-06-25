@@ -78,6 +78,17 @@ QScrollArea {
     border: none;
 }
 
+/* Cabeçalho de marca + conexão - ver gui/widgets/header_bar.py */
+QWidget#headerBar {
+    background-color: {{NAVY_SECONDARY}};
+    border-bottom: 2px solid {{ORANGE_ACCENT}};
+}
+
+QLabel#headerStep {
+    color: {{ORANGE_ACCENT}};
+    font-weight: bold;
+}
+
 QSplitter::handle {
     background-color: {{NAVY_SECONDARY}};
 }

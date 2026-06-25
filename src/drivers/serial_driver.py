@@ -18,9 +18,18 @@ import serial
 from serial.tools import list_ports
 
 from config import SerialConfig
-from drivers.exceptions import SerialConnectionError, SerialTimeoutError
+from drivers.exceptions import (
+    ScpiFramingError,
+    SerialConnectionError,
+    SerialTimeoutError,
+)
 
 _serial_io_logger = logging.getLogger("serial_io")
+
+# Um *IDN? válido da E363x é "fabricante,modelo,serie,firmware": sempre tem
+# vírgulas. Resposta sem vírgula (ou vazia) denuncia framing/baud errados, não
+# o conteúdo real do instrumento.
+_IDN_MIN_COMMAS = 1
 
 
 @dataclass
@@ -57,13 +66,25 @@ class SerialTransport:
     def __init__(self, config: SerialConfig) -> None:
         self._config = config
         self._serial: serial.Serial | None = None
+        # Porta escolhida pelo operador na GUI (tem prioridade sobre a config).
+        self._port_override: str | None = None
 
     @property
     def is_open(self) -> bool:
         return self._serial is not None and self._serial.is_open
 
+    def set_port_override(self, port: str | None) -> None:
+        """Define a porta COM escolhida manualmente pelo operador na GUI.
+
+        Tem prioridade sobre `port`/VID-PID da config. Passar None volta a
+        usar a resolução automática.
+        """
+        self._port_override = port or None
+
     def resolve_port(self) -> str:
-        """Resolve a porta a usar: fixa por config, ou por VID/PID."""
+        """Resolve a porta a usar: escolha do operador, fixa por config, ou VID/PID."""
+        if self._port_override:
+            return self._port_override
         if self._config.port:
             return self._config.port
         if self._config.vid is not None and self._config.pid is not None:
@@ -97,12 +118,21 @@ class SerialTransport:
                 stopbits=self._config.stopbits,
                 timeout=self._config.timeout_s,
                 write_timeout=self._config.write_timeout_s,
-                dsrdtr=False,
-                rtscts=False,
+                dsrdtr=self._config.dsrdtr,
+                rtscts=self._config.rtscts,
                 xonxoff=False,
             )
+            # Ergue DTR/RTS pelo lado do PC: em cabos que cruzam essas linhas é
+            # o que faz a fonte enxergar DSR verdadeiro e parar de segurar as
+            # respostas (causa nº1 de timeout num cabo de 3 fios).
             if self._config.force_dtr_high:
                 self._serial.dtr = True
+            if self._config.force_rts_high:
+                self._serial.rts = True
+            # Descarta qualquer lixo deixado no buffer por uma sessão anterior
+            # (evita que uma resposta órfã seja lida como se fosse da atual).
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
         except serial.SerialException as exc:
             raise SerialConnectionError(f"Falha ao abrir porta {port}: {exc}") from exc
 
@@ -135,6 +165,48 @@ class SerialTransport:
         response = raw.decode("ascii", errors="replace").strip()
         _serial_io_logger.debug("RX: %s", response)
         return response
+
+    def probe_identity(self) -> str:
+        """Sondagem mínima e diagnóstica de presença do instrumento.
+
+        Sequência deliberadamente curta para NÃO provocar o "apito constante":
+        em vez de despejar REMote/CLS/ERRor? (cada um vira um bip quando o
+        framing está errado), envia só `*CLS` (limpa a fila de erros sem
+        precisar de resposta) e um único `*IDN?`. A partir do que volta,
+        classifica a falha de forma acionável para o operador:
+
+        - resposta vazia (timeout)  -> cabo/baud/handshake. A E363x segura as
+          respostas enquanto não vê DSR verdadeiro (cabo de 3 fios sem jumper
+          DTR-DSR é a causa clássica).
+        - resposta sem vírgula (lixo) -> framing: paridade/data bits/stop bits
+          ou baudrate divergentes do painel frontal da fonte.
+        - resposta válida -> devolve a string de identificação.
+        """
+        if self._serial is None or not self._serial.is_open:
+            raise SerialConnectionError("Sonda chamada com a porta fechada.")
+        self._serial.reset_input_buffer()
+        self.write_line("*CLS")
+        try:
+            response = self.query_identity()
+        except SerialTimeoutError as exc:
+            raise SerialTimeoutError(
+                "Sem resposta da fonte (timeout). Verifique: porta COM correta, "
+                "cabo/adaptador, baudrate igual ao painel frontal e o handshake "
+                "DTR/DSR (em cabo de 3 fios, faça o jumper DTR-DSR no conector "
+                "da fonte)."
+            ) from exc
+        if response.count(",") < _IDN_MIN_COMMAS:
+            raise ScpiFramingError(
+                f"Resposta ilegível ao *IDN? ('{response}'). Indício de erro de "
+                "framing: confira paridade/data bits/stop bits e o baudrate "
+                "configurados no painel frontal da E363x."
+            )
+        return response
+
+    def query_identity(self) -> str:
+        """Envia `*IDN?` e lê uma linha (sem classificação de erro). Uso interno."""
+        self.write_line("*IDN?")
+        return self.read_line()
 
     def reconnect_with_backoff(self, max_retries: int, backoff_base_s: float, multiplier: float) -> bool:
         """Tenta reabrir a porta com backoff exponencial.

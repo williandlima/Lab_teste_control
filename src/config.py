@@ -36,6 +36,13 @@ class SerialConfig:
     timeout_s: float
     write_timeout_s: float
     force_dtr_high: bool
+    # Handshake: a E363x usa DTR/DSR. Num cabo de 3 fios sem jumper DTR-DSR a
+    # fonte segura as respostas (timeout). Erguer RTS/DTR pelo PC ajuda quando
+    # o cabo cruza essas linhas; mantidos configuráveis para não ficar preso a
+    # uma única fiação. (ver drivers/serial_driver.py:connect)
+    force_rts_high: bool = True
+    rtscts: bool = False
+    dsrdtr: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,6 +141,9 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
         timeout_s=serial_raw["timeout_s"],
         write_timeout_s=serial_raw["write_timeout_s"],
         force_dtr_high=serial_raw["force_dtr_high"],
+        force_rts_high=serial_raw.get("force_rts_high", True),
+        rtscts=serial_raw.get("rtscts", False),
+        dsrdtr=serial_raw.get("dsrdtr", False),
     )
 
     reconnection = ReconnectionConfig(**raw["reconnection"])
