@@ -57,7 +57,7 @@ def populated_session_id(tmp_path: Path) -> tuple[Database, int]:
 
     operator = OperatorRepository(db).get_or_create("Joao Silva")
     board = BoardRepository(db).get_or_create("BRD-001", "PN-123", "A")
-    config = TestParameterConfigRepository(db).create(
+    config = TestParameterConfigRepository(db).save(
         TestParameterConfig(
             id=None,
             board_id=board.id,
