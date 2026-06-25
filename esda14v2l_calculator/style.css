@@ -1,0 +1,248 @@
+:root {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --panel-2: #16213a;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --fonte: #22c55e;
+  --calc: #3b82f6;
+  --aconf: #f59e0b;
+  --warn: #ef4444;
+  --border: #334155;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 70ch;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.panel h3 {
+  font-size: 0.95rem;
+  color: var(--accent);
+  margin: 1.25rem 0 0.25rem;
+}
+
+.field {
+  margin-bottom: 0.85rem;
+  position: relative;
+}
+
+.field label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.field input[type="number"],
+.field select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.radio-field {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.radio-field label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+
+.badge.fonte { background: rgba(34,197,94,0.15); color: var(--fonte); border: 1px solid var(--fonte); }
+.badge.calc { background: rgba(59,130,246,0.15); color: var(--calc); border: 1px solid var(--calc); }
+.badge.aconf { background: rgba(245,158,11,0.15); color: var(--aconf); border: 1px solid var(--aconf); }
+
+.hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.param-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+
+@media (max-width: 560px) {
+  .param-grid { grid-template-columns: 1fr; }
+}
+
+.result-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.result-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.result-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+
+.formula {
+  overflow-x: auto;
+  padding: 0.4rem 0;
+}
+
+.combo-block {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.combo-block:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.combo-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+}
+
+.footer-panel {
+  margin: 0 1.5rem 1.25rem;
+}
+
+table#comparisonTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+table#comparisonTable th,
+table#comparisonTable td {
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+}
+
+table#comparisonTable th {
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.note {
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.88rem;
+  border-radius: 0 6px 6px 0;
+}
+
+.note.warn {
+  border-left-color: var(--warn);
+}
+
+.help {
+  margin: 0 1.5rem 2rem;
+}
+
+.help dt {
+  font-weight: 700;
+  margin-top: 0.75rem;
+  color: var(--accent);
+}
+
+.help dd {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+}
+
+.legend {
+  list-style: none;
+  padding: 0;
+}
+
+.legend li {
+  margin-bottom: 0.35rem;
+}
+
+.aconf-note {
+  margin-top: 0.5rem;
+}
