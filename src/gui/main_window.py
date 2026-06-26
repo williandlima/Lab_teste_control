@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
@@ -52,6 +53,10 @@ from gui.widgets.segment_display import SegmentDisplay
 from gui.widgets.status_badge import StatusBadge
 from hardware.power_supply import PowerSupplyE363x
 from logger import UI_LOG_BUFFER
+from reports.excel_report import generate_excel_report
+from reports.pdf_report import generate_pdf_report
+from reports.report_data import assemble_report_data
+from reports.word_report import generate_word_report
 
 _TERMINATION_TO_SESSION_STATUS = {
     TestState.COMPLETED: TestSessionStatus.COMPLETED,
@@ -370,11 +375,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.setCurrentWidget(self.evaluation_view)
 
     def _on_evaluation_submitted(self, data: dict) -> None:
+        session: TestSession = data["session"]
+        self._save_report(session.id)
+
         self._session = None
         self._state_machine = None
         self._worker = None
+        self._board = None
+        self._operator = None
+        self._registration_data = None
         self.registration_view.refresh_operator_history()
+        self.registration_view.clear_form()
         self.stack.setCurrentWidget(self.registration_view)
+
+    def _save_report(self, test_session_id: int) -> None:
+        """Salva o relatório do ensaio com escolha de pasta pelo operador.
+
+        Mesmo modelo de "Salvar como" do Word: o operador decide onde gravar,
+        em vez de um caminho fixo. Cancelar o diálogo não impede o avanço
+        para o próximo cadastro — só pula a geração do relatório.
+        """
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            self,
+            "Salvar relatório do ensaio em…",
+            str(self._app_config.paths.exports_dir),
+        )
+        if not folder:
+            return
+
+        data = assemble_report_data(
+            test_session_id,
+            self._session_repo,
+            self._board_repo,
+            self._operator_repo,
+            self._sample_repo,
+            self._evaluation_repo,
+            self._event_repo,
+        )
+        output_dir = Path(folder)
+        try:
+            saved_paths = [
+                generate_word_report(data, self._app_config.branding, output_dir),
+                generate_excel_report(data, self._app_config.branding, output_dir),
+                generate_pdf_report(data, self._app_config.branding, output_dir),
+            ]
+        except OSError as exc:
+            QtWidgets.QMessageBox.warning(self, "Erro ao salvar relatório", str(exc))
+            return
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Relatório salvo",
+            "Relatório salvo em:\n" + "\n".join(str(path) for path in saved_paths),
+        )
 
     _STEP_NAMES = {0: "Cadastro", 1: "Parâmetros", 2: "Monitoramento", 3: "Avaliação manual"}
 
