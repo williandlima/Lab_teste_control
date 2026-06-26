@@ -381,8 +381,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self._session.id, status, finished_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
         self.header.test_button.setEnabled(True)
+
+        # COMM_ERROR = o teste NÃO chegou a comunicar com a fonte (falha já na
+        # 1ª etapa). Não faz sentido ir para a avaliação manual com uma sessão
+        # sem amostras — isso é o que fazia a tela "abrir e já encerrar". Em vez
+        # disso, avisa o operador com uma mensagem acionável e volta aos
+        # parâmetros para nova tentativa (a placa/operador continuam carregados).
         if status == TestSessionStatus.COMM_ERROR:
             self.header.set_connection_state(False, "Erro de comunicação durante o teste.")
+            self._session = None
+            self._state_machine = None
+            self._worker = None
+            QtWidgets.QMessageBox.warning(
+                self,
+                "O teste não executou",
+                "Falha de comunicação com a fonte — o ensaio não chegou a iniciar.\n\n"
+                "Verifique:\n"
+                "• a porta COM e o cabo/adaptador (use \"Testar conexão\");\n"
+                "• o baudrate/paridade iguais ao painel frontal da fonte;\n"
+                "• ou marque \"Simulação\" no cabeçalho para rodar sem hardware.",
+            )
+            self.stack.setCurrentWidget(self.parameters_view)
+            return
 
         samples = self._sample_repo.list_for_session(self._session.id)
         self.evaluation_view.load_session(self._session, self._operator, self._state_machine, samples)
