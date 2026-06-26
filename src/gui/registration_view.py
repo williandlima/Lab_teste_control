@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtWidgets
 
 from database.models import Operator
 from database.repositories import BoardRepository, OperatorRepository
+from version import APP_VERSION
 
 
 class RegistrationView(QtWidgets.QWidget):
@@ -27,13 +28,30 @@ class RegistrationView(QtWidgets.QWidget):
         self._operator_repo = operator_repo
         self._board_repo = board_repo
 
+        version_label = QtWidgets.QLabel(f"Versão {APP_VERSION}")
+        version_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        version_label.setStyleSheet("color: gray; font-size: 11px;")
+
         scroll = QtWidgets.QScrollArea(self)
         scroll.setWidgetResizable(True)
         outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.addWidget(version_label)
         outer_layout.addWidget(scroll)
 
         form_container = QtWidgets.QWidget()
         scroll.setWidget(form_container)
+
+        operator_group = QtWidgets.QGroupBox("Cadastro do Operador")
+        operator_form = QtWidgets.QFormLayout(operator_group)
+
+        self.operator_combo = QtWidgets.QComboBox()
+        self.operator_combo.setEditable(True)
+        self.operator_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+        self.operator_combo.currentTextChanged.connect(self._on_operator_changed)
+        self.if_edit = QtWidgets.QLineEdit()
+
+        operator_form.addRow("Operador:", self.operator_combo)
+        operator_form.addRow("IF:", self.if_edit)
 
         group = QtWidgets.QGroupBox("Identificação da placa e do teste")
         form = QtWidgets.QFormLayout(group)
@@ -42,9 +60,6 @@ class RegistrationView(QtWidgets.QWidget):
         self.part_number_edit = QtWidgets.QLineEdit()
         self.revision_edit = QtWidgets.QLineEdit()
         self.serial_number_edit = QtWidgets.QLineEdit()
-        self.operator_combo = QtWidgets.QComboBox()
-        self.operator_combo.setEditable(True)
-        self.operator_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
         self.production_order_edit = QtWidgets.QLineEdit()
         self.observations_edit = QtWidgets.QTextEdit()
         self.observations_edit.setMaximumHeight(80)
@@ -54,7 +69,6 @@ class RegistrationView(QtWidgets.QWidget):
         form.addRow("Part Number (P/N):", self.part_number_edit)
         form.addRow("Revisão:", self.revision_edit)
         form.addRow("Número de série (S/N):", self.serial_number_edit)
-        form.addRow("Operador:", self.operator_combo)
         form.addRow("Ordem de produção:", self.production_order_edit)
         form.addRow("Observações:", self.observations_edit)
         form.addRow("Data/hora:", self.datetime_label)
@@ -63,6 +77,7 @@ class RegistrationView(QtWidgets.QWidget):
         self.submit_button.clicked.connect(self._on_submit)
 
         form_layout = QtWidgets.QVBoxLayout(form_container)
+        form_layout.addWidget(operator_group)
         form_layout.addWidget(group)
         form_layout.addWidget(self.submit_button)
         form_layout.addStretch()
@@ -77,7 +92,12 @@ class RegistrationView(QtWidgets.QWidget):
     def refresh_operator_history(self) -> None:
         self.operator_combo.clear()
         for operator in self._operator_repo.list_all():
-            self.operator_combo.addItem(operator.name)
+            self.operator_combo.addItem(operator.name, userData=operator)
+
+    def _on_operator_changed(self, name: str) -> None:
+        index = self.operator_combo.findText(name)
+        operator: Operator | None = self.operator_combo.itemData(index) if index >= 0 else None
+        self.if_edit.setText(operator.if_number or "" if operator else "")
 
     def _update_clock(self) -> None:
         self.datetime_label.setText(dt.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
@@ -88,6 +108,7 @@ class RegistrationView(QtWidgets.QWidget):
         revision = self.revision_edit.text().strip()
         serial_number = self.serial_number_edit.text().strip()
         operator_name = self.operator_combo.currentText().strip()
+        if_number = self.if_edit.text().strip()
 
         missing = [
             label
@@ -97,6 +118,7 @@ class RegistrationView(QtWidgets.QWidget):
                 ("Revisão", revision),
                 ("S/N", serial_number),
                 ("Operador", operator_name),
+                ("IF", if_number),
             )
             if not value
         ]
@@ -106,7 +128,7 @@ class RegistrationView(QtWidgets.QWidget):
             )
             return
 
-        operator: Operator = self._operator_repo.get_or_create(operator_name)
+        operator: Operator = self._operator_repo.get_or_create(operator_name, if_number)
         board = self._board_repo.get_or_create(code, part_number, revision)
         self.refresh_operator_history()
 
