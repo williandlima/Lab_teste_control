@@ -41,6 +41,10 @@ class BaseSerialInstrument(ABC):
         """Define a porta COM escolhida pelo operador (prioridade sobre a config)."""
         self._transport.set_port_override(port)
 
+    def set_simulate(self, enabled: bool | None) -> None:
+        """Liga/desliga o modo simulação (fonte virtual) em tempo de execução."""
+        self._transport.set_simulate(enabled)
+
     def test_connection(self) -> str:
         """Abre a porta, sonda *IDN? e fecha — diagnóstico sem efeitos colaterais.
 

@@ -54,6 +54,13 @@ class HeaderBar(QtWidgets.QWidget):
         self.test_button.clicked.connect(self._emit_test_request)
         layout.addWidget(self.test_button)
 
+        # Modo simulação: roda o ensaio com uma fonte virtual, sem hardware.
+        self.simulate_check = QtWidgets.QCheckBox("Simulação")
+        self.simulate_check.setToolTip(
+            "Marque para rodar o ensaio com uma fonte SIMULADA (sem hardware conectado)."
+        )
+        layout.addWidget(self.simulate_check)
+
         self.connection_badge = StatusBadge("FONTE")
         layout.addWidget(self.connection_badge)
 
@@ -91,6 +98,13 @@ class HeaderBar(QtWidgets.QWidget):
     def selected_port(self) -> str:
         """Porta escolhida pelo operador, ou "" para resolução automática."""
         return self.port_combo.currentData() or ""
+
+    def simulation_enabled(self) -> bool:
+        """True se o operador marcou o modo simulação (fonte virtual)."""
+        return self.simulate_check.isChecked()
+
+    def set_simulation_enabled(self, enabled: bool) -> None:
+        self.simulate_check.setChecked(enabled)
 
     # -- estado de conexão / passo -----------------------------------------
 

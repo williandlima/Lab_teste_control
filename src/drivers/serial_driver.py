@@ -68,6 +68,19 @@ class SerialTransport:
         self._serial: serial.Serial | None = None
         # Porta escolhida pelo operador na GUI (tem prioridade sobre a config).
         self._port_override: str | None = None
+        # Liga/desliga simulação em tempo de execução (botão no cabeçalho).
+        # None = usa o valor de `config.simulate`; True/False sobrepõe.
+        self._simulate_override: bool | None = None
+
+    def set_simulate(self, enabled: bool | None) -> None:
+        """Liga/desliga o modo simulação em tempo de execução (None volta à config)."""
+        self._simulate_override = enabled
+
+    @property
+    def _simulate(self) -> bool:
+        if self._simulate_override is not None:
+            return self._simulate_override
+        return self._config.simulate
 
     @property
     def is_open(self) -> bool:
@@ -108,7 +121,7 @@ class SerialTransport:
         linha que, fisicamente amarrada, sinaliza ao instrumento que o lado
         remoto está "presente" — sem isso a fonte trava esperando handshake.
         """
-        if self._config.simulate:
+        if self._simulate:
             self._connect_simulated()
             return
         port = self.resolve_port()

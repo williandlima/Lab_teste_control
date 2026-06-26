@@ -47,6 +47,22 @@ def test_simulated_serial_output_off_reads_near_zero() -> None:
     assert float(sim.readline()) < 0.1  # saída desligada -> ~0 V
 
 
+def test_transport_runtime_simulate_override() -> None:
+    """Botão 'Simulação' do cabeçalho liga a fonte virtual mesmo com config=False."""
+    from drivers.serial_driver import SerialTransport
+
+    config = _serial_config()
+    object.__setattr__(config, "simulate", False)  # config desliga...
+    transport = SerialTransport(config)
+    transport.set_simulate(True)  # ...mas o operador liga em tempo de execução
+
+    transport.connect()
+
+    assert transport.is_open
+    assert isinstance(transport._serial, SimulatedE363xSerial)
+    transport.disconnect()
+
+
 def test_state_machine_completes_in_simulation_mode() -> None:
     instrument = PowerSupplyE363x(_serial_config(), ReconnectionConfig(
         max_retries=3, backoff_base_s=0.1, backoff_multiplier=2.0, heartbeat_interval_s=5.0

@@ -224,6 +224,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.header = HeaderBar(app_config.branding)
         self.header.test_connection_requested.connect(self._on_test_connection)
+        # Estado inicial do botão "Simulação" segue o config (serial.simulate).
+        self.header.set_simulation_enabled(app_config.serial.simulate)
 
         self.registration_view = RegistrationView(self._operator_repo, self._board_repo)
         self.parameters_view = TestParametersView(self._config_repo, asdict(app_config.test_defaults))
@@ -237,25 +239,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(self.evaluation_view)
         self.stack.currentChanged.connect(self._update_step_indicator)
 
+        # Log da aplicação: faixa fina sempre visível (espaço reduzido).
         self.app_log_edit = QtWidgets.QPlainTextEdit()
         self.app_log_edit.setReadOnly(True)
-        self.app_log_edit.setMaximumHeight(72)
+        self.app_log_edit.setFixedHeight(44)
 
-        # Log recolhível: ocupa o mínimo de espaço na tela e só expande quando
-        # o operador marca a caixa "Log da aplicação" (começa recolhido).
-        self.log_group = QtWidgets.QGroupBox("Log da aplicação")
-        self.log_group.setCheckable(True)
-        self.log_group.setChecked(False)
-        log_layout = QtWidgets.QVBoxLayout(self.log_group)
-        log_layout.addWidget(self.app_log_edit)
-        self.app_log_edit.setVisible(False)
-        self.log_group.toggled.connect(self.app_log_edit.setVisible)
+        log_row = QtWidgets.QHBoxLayout()
+        log_row.setContentsMargins(0, 0, 0, 0)
+        log_label = QtWidgets.QLabel("Log:")
+        log_row.addWidget(log_label)
+        log_row.addWidget(self.app_log_edit, stretch=1)
 
         central = QtWidgets.QWidget()
         central_layout = QtWidgets.QVBoxLayout(central)
         central_layout.addWidget(self.header)
         central_layout.addWidget(self.stack, stretch=1)
-        central_layout.addWidget(self.log_group)
+        central_layout.addLayout(log_row)
         self.setCentralWidget(central)
 
         self.registration_view.registration_submitted.connect(self._on_registration_submitted)
@@ -326,6 +325,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # A porta escolhida pelo operador no cabeçalho vale para o teste real.
         self._instrument.set_port(self.header.selected_port() or None)
+        # Modo simulação (fonte virtual) segue o botão do cabeçalho.
+        self._instrument.set_simulate(self.header.simulation_enabled())
 
         self.monitoring_panel.reset(
             run_config.voltage_min, run_config.voltage_max, run_config.test_duration_s, run_config.current_max
@@ -465,6 +466,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.header.set_testing(True)
         self.header.set_connection_unknown("Sondando a fonte…")
+        self._instrument.set_simulate(self.header.simulation_enabled())
         probe = ConnectionProbeWorker(self._instrument, port)
         probe.succeeded.connect(self._on_probe_success)
         probe.failed.connect(self._on_probe_failure)
