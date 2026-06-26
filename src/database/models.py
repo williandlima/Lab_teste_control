@@ -78,6 +78,8 @@ class TestSession:
     status: TestSessionStatus
     started_at: str | None = None
     finished_at: str | None = None
+    instrument_identity: str | None = None
+    app_version: str | None = None
     created_at: str | None = None
 
 

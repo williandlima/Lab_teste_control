@@ -71,6 +71,12 @@ class SerialTransport:
         # Liga/desliga simulação em tempo de execução (botão no cabeçalho).
         # None = usa o valor de `config.simulate`; True/False sobrepõe.
         self._simulate_override: bool | None = None
+        # Última identidade (*IDN?) lida com sucesso — para rastreabilidade.
+        self._last_identity: str | None = None
+
+    @property
+    def last_identity(self) -> str | None:
+        return self._last_identity
 
     def set_simulate(self, enabled: bool | None) -> None:
         """Liga/desliga o modo simulação em tempo de execução (None volta à config)."""
@@ -233,7 +239,9 @@ class SerialTransport:
     def query_identity(self) -> str:
         """Envia `*IDN?` e lê uma linha (sem classificação de erro). Uso interno."""
         self.write_line("*IDN?")
-        return self.read_line()
+        response = self.read_line()
+        self._last_identity = response
+        return response
 
     def reconnect_with_backoff(self, max_retries: int, backoff_base_s: float, multiplier: float) -> bool:
         """Tenta reabrir a porta com backoff exponencial.

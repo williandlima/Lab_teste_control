@@ -37,6 +37,11 @@ class BaseSerialInstrument(ABC):
     def is_connected(self) -> bool:
         return self._transport.is_open
 
+    @property
+    def last_identity(self) -> str | None:
+        """Última string *IDN? lida da fonte (rastreabilidade do ensaio)."""
+        return self._transport.last_identity
+
     def set_port(self, port: str | None) -> None:
         """Define a porta COM escolhida pelo operador (prioridade sobre a config)."""
         self._transport.set_port_override(port)

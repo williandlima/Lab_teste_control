@@ -91,6 +91,19 @@ class BrandingConfig:
 
 
 @dataclass(frozen=True)
+class InstrumentConfig:
+    """Dados de rastreabilidade da fonte física (mantidos manualmente).
+
+    Atualize quando o instrumento for recalibrado/trocado. São congelados no
+    config_snapshot da sessão no início de cada ensaio, então o relatório
+    reflete o que era válido NA HORA do teste, não o valor atual do YAML.
+    """
+    model: str | None = None
+    asset_id: str | None = None
+    calibration_due: str | None = None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     paths: PathsConfig
     serial: SerialConfig
@@ -98,6 +111,7 @@ class AppConfig:
     test_defaults: TestDefaultsConfig
     logging: LoggingConfig
     branding: BrandingConfig
+    instrument: InstrumentConfig
     raw: dict[str, Any] = field(repr=False, compare=False)
 
 
@@ -154,6 +168,13 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
     test_defaults = TestDefaultsConfig(**raw["test_defaults"])
     logging_cfg = LoggingConfig(**raw["logging"])
 
+    instrument_raw = raw.get("instrument", {}) or {}
+    instrument = InstrumentConfig(
+        model=instrument_raw.get("model"),
+        asset_id=instrument_raw.get("asset_id"),
+        calibration_due=instrument_raw.get("calibration_due"),
+    )
+
     branding_raw = raw["branding"]
     branding = BrandingConfig(
         company_name=branding_raw["company_name"],
@@ -180,5 +201,6 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
         test_defaults=test_defaults,
         logging=logging_cfg,
         branding=branding,
+        instrument=instrument,
         raw=raw,
     )

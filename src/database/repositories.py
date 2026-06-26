@@ -193,8 +193,9 @@ class TestSessionRepository:
             """
             INSERT INTO test_sessions
                 (board_id, serial_number, operator_id, test_parameter_config_id,
-                 config_snapshot_json, production_order, observations, status, started_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 config_snapshot_json, production_order, observations, status, started_at,
+                 instrument_identity, app_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.board_id,
@@ -206,6 +207,8 @@ class TestSessionRepository:
                 session.observations,
                 session.status.value,
                 session.started_at,
+                session.instrument_identity,
+                session.app_version,
             ),
         )
         conn.commit()
@@ -218,6 +221,17 @@ class TestSessionRepository:
         conn.execute(
             "UPDATE test_sessions SET status = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?",
             (status.value, finished_at, session_id),
+        )
+        conn.commit()
+
+    def set_instrument_identity(self, session_id: int, identity: str | None) -> None:
+        """Grava a string *IDN? da fonte usada no ensaio (rastreabilidade)."""
+        if not identity:
+            return
+        conn = self._db.connection
+        conn.execute(
+            "UPDATE test_sessions SET instrument_identity = ? WHERE id = ?",
+            (identity, session_id),
         )
         conn.commit()
 
@@ -249,6 +263,8 @@ class TestSessionRepository:
             status=TestSessionStatus(row["status"]),
             started_at=row["started_at"],
             finished_at=row["finished_at"],
+            instrument_identity=row["instrument_identity"],
+            app_version=row["app_version"],
             created_at=row["created_at"],
         )
 

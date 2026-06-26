@@ -36,6 +36,15 @@ sections:
       - ["Tensão observada (mín/máx)", "{voltage_min_observed} V / {voltage_max_observed} V"]
       - ["Corrente observada (mín/máx)", "{current_min_observed} A / {current_max_observed} A"]
 
+  traceability:
+    heading: "Instrumentação e rastreabilidade"
+    fields:
+      - ["Fonte (resposta *IDN?)", "{instrument_identity}"]
+      - ["Modelo do instrumento", "{instrument_model}"]
+      - ["Patrimônio / etiqueta", "{instrument_asset_id}"]
+      - ["Calibração válida até", "{instrument_calibration_due}"]
+      - ["Versão do software", "{app_version}"]
+
   evaluation:
     heading: "Avaliação manual do operador"
     fields:

@@ -94,7 +94,7 @@ def generate_word_report(
     subtitle.runs[0].font.italic = True
     subtitle.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    for key in ("identification", "parameters", "execution"):
+    for key in ("identification", "parameters", "execution", "traceability"):
         section = template["sections"][key]
         _add_heading(doc, section["heading"], branding)
         _add_fields_table(doc, render_fields(section["fields"], context))
