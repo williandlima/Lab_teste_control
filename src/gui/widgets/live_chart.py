@@ -13,6 +13,13 @@ from core.sampling_buffer import Sample
 
 
 class LiveChart(QtWidgets.QWidget):
+    _COLOR_TEXT = "#F5F7FA"
+    _COLOR_GRID = "#3A4F7A"
+    _COLOR_MINOR_GRID = "#22315A"
+    _COLOR_VOLTAGE = "#FF7A29"
+    _COLOR_CURRENT = "#4FD1C5"
+    _COLOR_LIMIT = "#E74C3C"
+
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -20,9 +27,19 @@ class LiveChart(QtWidgets.QWidget):
         self._current_series = QtCharts.QLineSeries(name="Corrente (A)")
         self._voltage_min_series = QtCharts.QLineSeries(name="V mín (ref.)")
         self._voltage_max_series = QtCharts.QLineSeries(name="V máx (ref.)")
+
+        voltage_pen = QtGui.QPen(QtGui.QColor(self._COLOR_VOLTAGE))
+        voltage_pen.setWidthF(2.2)
+        self._voltage_series.setPen(voltage_pen)
+
+        current_pen = QtGui.QPen(QtGui.QColor(self._COLOR_CURRENT))
+        current_pen.setWidthF(2.2)
+        self._current_series.setPen(current_pen)
+
         for guide_series in (self._voltage_min_series, self._voltage_max_series):
-            pen = guide_series.pen()
+            pen = QtGui.QPen(QtGui.QColor(self._COLOR_LIMIT))
             pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            pen.setWidthF(1.4)
             guide_series.setPen(pen)
 
         self._chart = QtCharts.QChart()
@@ -30,9 +47,24 @@ class LiveChart(QtWidgets.QWidget):
         self._chart.addSeries(self._voltage_min_series)
         self._chart.addSeries(self._voltage_max_series)
         self._chart.addSeries(self._current_series)
-        self._chart.legend().setVisible(True)
+
+        self._chart.setTitle("Monitoramento em tempo real — Tensão e Corrente")
+        title_font = self._chart.titleFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        self._chart.setTitleFont(title_font)
+        self._chart.setTitleBrush(QtGui.QBrush(QtGui.QColor(self._COLOR_TEXT)))
+
         self._chart.setBackgroundBrush(QtGui.QBrush(QtGui.QColor("#0A1F44")))
-        self._chart.setTitleBrush(QtGui.QBrush(QtGui.QColor("#F5F7FA")))
+        self._chart.setPlotAreaBackgroundBrush(QtGui.QBrush(QtGui.QColor("#0E2554")))
+        self._chart.setPlotAreaBackgroundVisible(True)
+        self._chart.setMargins(QtCore.QMargins(12, 12, 12, 12))
+        self._chart.setAnimationOptions(QtCharts.QChart.AnimationOption.NoAnimation)
+
+        legend = self._chart.legend()
+        legend.setVisible(True)
+        legend.setLabelColor(QtGui.QColor(self._COLOR_TEXT))
+        legend.setAlignment(QtCore.Qt.AlignmentFlag.AlignBottom)
 
         self._axis_x = QtCharts.QValueAxis()
         self._axis_x.setTitleText("Tempo (s)")
@@ -40,6 +72,21 @@ class LiveChart(QtWidgets.QWidget):
         self._axis_voltage.setTitleText("Tensão (V)")
         self._axis_current = QtCharts.QValueAxis()
         self._axis_current.setTitleText("Corrente (A)")
+
+        for axis in (self._axis_x, self._axis_voltage, self._axis_current):
+            axis.setLabelsColor(QtGui.QColor(self._COLOR_TEXT))
+            axis.setTitleBrush(QtGui.QBrush(QtGui.QColor(self._COLOR_TEXT)))
+            axis.setGridLineVisible(True)
+            axis.setGridLinePen(QtGui.QPen(QtGui.QColor(self._COLOR_GRID), 1, QtCore.Qt.PenStyle.SolidLine))
+            axis.setMinorGridLineVisible(True)
+            axis.setMinorGridLinePen(
+                QtGui.QPen(QtGui.QColor(self._COLOR_MINOR_GRID), 1, QtCore.Qt.PenStyle.DotLine)
+            )
+            axis.setMinorTickCount(1)
+            axis.setLinePen(QtGui.QPen(QtGui.QColor(self._COLOR_TEXT), 1))
+        self._axis_voltage.setLabelFormat("%.2f")
+        self._axis_current.setLabelFormat("%.3f")
+        self._axis_x.setLabelFormat("%.0f")
 
         self._chart.addAxis(self._axis_x, QtCore.Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self._axis_voltage, QtCore.Qt.AlignmentFlag.AlignLeft)
@@ -53,8 +100,13 @@ class LiveChart(QtWidgets.QWidget):
 
         chart_view = QtCharts.QChartView(self._chart)
         chart_view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumSize(640, 420)
+        chart_view.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding
+        )
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(chart_view)
 
         self._t0: float | None = None
@@ -62,12 +114,16 @@ class LiveChart(QtWidgets.QWidget):
     def set_voltage_limits(self, voltage_min: float, voltage_max: float, duration_s: float) -> None:
         self._voltage_min_series.replace([QtCore.QPointF(0, voltage_min), QtCore.QPointF(duration_s, voltage_min)])
         self._voltage_max_series.replace([QtCore.QPointF(0, voltage_max), QtCore.QPointF(duration_s, voltage_max)])
-        self._axis_x.setRange(0, max(duration_s, 1.0))
+        x_max = max(duration_s, 1.0)
+        self._axis_x.setRange(0, x_max)
+        self._axis_x.setTickCount(min(11, max(2, int(x_max // 10) + 2)))
         margin = max(0.5, (voltage_max - voltage_min) * 0.2)
         self._axis_voltage.setRange(voltage_min - margin, voltage_max + margin)
+        self._axis_voltage.setTickCount(8)
 
     def set_current_range(self, current_max: float) -> None:
         self._axis_current.setRange(0, max(current_max * 1.2, 0.1))
+        self._axis_current.setTickCount(8)
 
     def update_samples(self, samples: list[Sample]) -> None:
         if not samples:
