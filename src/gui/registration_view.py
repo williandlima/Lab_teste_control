@@ -28,14 +28,22 @@ class RegistrationView(QtWidgets.QWidget):
         self._operator_repo = operator_repo
         self._board_repo = board_repo
 
+        title_label = QtWidgets.QLabel("Cadastro do ensaio")
+        title_label.setObjectName("viewTitle")
         version_label = QtWidgets.QLabel(f"Versão {APP_VERSION}")
-        version_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
-        version_label.setStyleSheet("color: gray; font-size: 11px;")
+        version_label.setProperty("caption", "true")
+        version_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.addWidget(title_label)
+        title_row.addStretch()
+        title_row.addWidget(version_label)
 
         scroll = QtWidgets.QScrollArea(self)
         scroll.setWidgetResizable(True)
         outer_layout = QtWidgets.QVBoxLayout(self)
-        outer_layout.addWidget(version_label)
+        outer_layout.addLayout(title_row)
         outer_layout.addWidget(scroll)
 
         form_container = QtWidgets.QWidget()
