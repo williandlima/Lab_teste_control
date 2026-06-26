@@ -21,7 +21,7 @@ from reports.template_engine import (
     evenly_sampled,
     load_template,
     render_fields,
-    report_filename,
+    resolve_output_path,
     result_color_hex,
 )
 
@@ -57,7 +57,9 @@ def _data_table(columns: list[str], rows: list[list[str]], branding: BrandingCon
     return table
 
 
-def generate_pdf_report(data: ReportData, branding: BrandingConfig, output_dir: Path) -> Path:
+def generate_pdf_report(
+    data: ReportData, branding: BrandingConfig, output_dir: Path, base_name: str | None = None
+) -> Path:
     template = load_template()
     context = build_context(data, branding)
     styles = getSampleStyleSheet()
@@ -71,8 +73,7 @@ def generate_pdf_report(data: ReportData, branding: BrandingConfig, output_dir: 
     subtitle_style = ParagraphStyle("FctSubtitle", parent=styles["Italic"])
     footer_style = ParagraphStyle("FctFooter", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / report_filename(data, "pdf")
+    output_path = resolve_output_path(data, output_dir, "pdf", base_name)
     doc = SimpleDocTemplate(str(output_path), pagesize=A4)
 
     elements: list = []

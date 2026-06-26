@@ -94,6 +94,18 @@ class RegistrationView(QtWidgets.QWidget):
         for operator in self._operator_repo.list_all():
             self.operator_combo.addItem(operator.name, userData=operator)
 
+    def clear_form(self) -> None:
+        """Deixa a Tela 1 em branco para o próximo operador (fim do ensaio)."""
+        self.operator_combo.setCurrentIndex(-1)
+        self.operator_combo.clearEditText()
+        self.if_edit.clear()
+        self.code_edit.clear()
+        self.part_number_edit.clear()
+        self.revision_edit.clear()
+        self.serial_number_edit.clear()
+        self.production_order_edit.clear()
+        self.observations_edit.clear()
+
     def _on_operator_changed(self, name: str) -> None:
         index = self.operator_combo.findText(name)
         operator: Operator | None = self.operator_combo.itemData(index) if index >= 0 else None

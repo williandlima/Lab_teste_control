@@ -21,7 +21,7 @@ from reports.template_engine import (
     evenly_sampled,
     load_template,
     render_fields,
-    report_filename,
+    resolve_output_path,
     result_color_hex,
 )
 
@@ -62,7 +62,9 @@ def _write_table(ws: Worksheet, row: int, columns: list[str], rows: list[list[st
     return row + 1
 
 
-def generate_excel_report(data: ReportData, branding: BrandingConfig, output_dir: Path) -> Path:
+def generate_excel_report(
+    data: ReportData, branding: BrandingConfig, output_dir: Path, base_name: str | None = None
+) -> Path:
     template = load_template()
     context = build_context(data, branding)
 
@@ -119,7 +121,6 @@ def generate_excel_report(data: ReportData, branding: BrandingConfig, output_dir
     footer_cell.font = Font(italic=True, size=9)
     footer_cell.alignment = Alignment(horizontal="left")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / report_filename(data, "xlsx")
+    output_path = resolve_output_path(data, output_dir, "xlsx", base_name)
     wb.save(output_path)
     return output_path

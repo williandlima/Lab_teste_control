@@ -43,6 +43,9 @@ class SerialConfig:
     force_rts_high: bool = True
     rtscts: bool = False
     dsrdtr: bool = False
+    # Modo demonstração: usa uma fonte simulada em vez da porta COM real, para
+    # rodar o fluxo completo sem hardware conectado (ver simulated_serial.py).
+    simulate: bool = False
 
 
 @dataclass(frozen=True)
@@ -144,6 +147,7 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
         force_rts_high=serial_raw.get("force_rts_high", True),
         rtscts=serial_raw.get("rtscts", False),
         dsrdtr=serial_raw.get("dsrdtr", False),
+        simulate=serial_raw.get("simulate", False),
     )
 
     reconnection = ReconnectionConfig(**raw["reconnection"])

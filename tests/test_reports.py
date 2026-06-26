@@ -175,6 +175,18 @@ def test_generate_pdf_report_creates_file(populated_session_id, branding, tmp_pa
     assert path.stat().st_size > 0
 
 
+def test_generate_report_honors_operator_chosen_name(populated_session_id, branding, tmp_path: Path) -> None:
+    """Nome digitado no diálogo 'Salvar como' do Windows é respeitado (sem extensão)."""
+    db, session_id = populated_session_id
+    data = _data(db, session_id)
+    output_dir = tmp_path / "exports"
+
+    path = generate_word_report(data, branding, output_dir, base_name="Relatorio Final")
+
+    assert path.name == "Relatorio Final.docx"
+    assert path.exists()
+
+
 def test_generate_reports_without_evaluation_yet(populated_session_id, branding, tmp_path: Path) -> None:
     """Sessão ainda sem avaliação manual: relatório deve mostrar 'Pendente', sem quebrar."""
     db, session_id = populated_session_id

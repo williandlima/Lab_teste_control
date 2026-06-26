@@ -32,6 +32,9 @@ serial:
   force_rts_high: true
   dsrdtr: false
   rtscts: false
+  # Modo demonstração: true = roda com uma fonte SIMULADA (sem hardware), útil
+  # para treinar/validar o app sem a fonte conectada. Deixe false em produção.
+  simulate: false
 
 reconnection:
   max_retries: 3

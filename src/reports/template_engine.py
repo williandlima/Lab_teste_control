@@ -88,6 +88,22 @@ def report_filename(data: ReportData, extension: str) -> str:
     return f"FCT_{safe_code}_{safe_serial}_{data.session.id}.{extension}"
 
 
+def resolve_output_path(data, output_dir, extension: str, base_name: str | None = None):
+    """Caminho final do relatório, honrando o nome escolhido pelo operador.
+
+    Se `base_name` for informado (nome digitado no diálogo "Salvar como" do
+    Windows, sem extensão), usa-o; senão cai no nome padronizado
+    `report_filename`. A extensão é sempre forçada para casar com o formato.
+    """
+    from pathlib import Path
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if base_name:
+        return output_dir / f"{Path(base_name).stem}.{extension}"
+    return output_dir / report_filename(data, extension)
+
+
 def evenly_sampled(items: list[Any], max_items: int) -> list[Any]:
     """Subamostra uniforme para tabelas de relatório (granularidade completa fica no banco)."""
     if max_items <= 0 or len(items) <= max_items:

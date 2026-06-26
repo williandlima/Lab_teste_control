@@ -108,6 +108,9 @@ class SerialTransport:
         linha que, fisicamente amarrada, sinaliza ao instrumento que o lado
         remoto está "presente" — sem isso a fonte trava esperando handshake.
         """
+        if self._config.simulate:
+            self._connect_simulated()
+            return
         port = self.resolve_port()
         try:
             self._serial = serial.Serial(
@@ -137,6 +140,17 @@ class SerialTransport:
             raise SerialConnectionError(f"Falha ao abrir porta {port}: {exc}") from exc
 
         _serial_io_logger.debug("Porta %s aberta (%s)", port, self._config)
+
+    def _connect_simulated(self) -> None:
+        """Abre uma fonte simulada (modo demonstração) em vez de uma porta real."""
+        from drivers.simulated_serial import SimulatedE363xSerial
+
+        self._serial = SimulatedE363xSerial()
+        if self._config.force_dtr_high:
+            self._serial.dtr = True
+        if self._config.force_rts_high:
+            self._serial.rts = True
+        _serial_io_logger.info("Modo SIMULAÇÃO ativo: usando fonte E363x simulada.")
 
     def disconnect(self) -> None:
         if self._serial is not None and self._serial.is_open:

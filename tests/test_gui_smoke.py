@@ -50,3 +50,131 @@ def test_main_window_builds_full_flow(qtbot, app_config, tmp_path: Path) -> None
     # O cabeçalho de marca/conexão está presente e acima do stack.
     assert window.header is not None
     db.close()
+
+
+def test_registration_view_clear_form_resets_fields(qtbot, tmp_path: Path) -> None:
+    from database.repositories import BoardRepository, OperatorRepository
+    from gui.registration_view import RegistrationView
+
+    db = Database(tmp_path / "clear_form.db")
+    db.connect()
+    view = RegistrationView(OperatorRepository(db), BoardRepository(db))
+    qtbot.addWidget(view)
+
+    view.code_edit.setText("BRD-1")
+    view.part_number_edit.setText("PN-1")
+    view.revision_edit.setText("A")
+    view.serial_number_edit.setText("SN-1")
+    view.production_order_edit.setText("OP-1")
+    view.observations_edit.setPlainText("obs")
+    view.operator_combo.setEditText("Joao")
+    view.if_edit.setText("IF-123")
+
+    view.clear_form()
+
+    assert view.code_edit.text() == ""
+    assert view.part_number_edit.text() == ""
+    assert view.revision_edit.text() == ""
+    assert view.serial_number_edit.text() == ""
+    assert view.production_order_edit.text() == ""
+    assert view.observations_edit.toPlainText() == ""
+    assert view.operator_combo.currentText() == ""
+    assert view.if_edit.text() == ""
+    db.close()
+
+
+def test_evaluation_submitted_saves_report_and_clears_registration(
+    qtbot, app_config, tmp_path: Path, monkeypatch
+) -> None:
+    """Fim do ensaio: pede pasta (estilo Word), grava os 3 relatórios e limpa a Tela 1."""
+    from PySide6 import QtWidgets
+
+    from database.models import (
+        Evaluation,
+        EvaluationResult,
+        PowerStep,
+        TestParameterConfig,
+        TestSession,
+        TestSessionStatus,
+    )
+    from database.repositories import (
+        BoardRepository,
+        EvaluationRepository,
+        OperatorRepository,
+        TestParameterConfigRepository,
+        TestSessionRepository,
+    )
+    from gui.main_window import MainWindow
+
+    db = Database(tmp_path / "evaluation_flow.db")
+    db.connect()
+
+    operator = OperatorRepository(db).get_or_create("Joao Silva", "IF-1")
+    board = BoardRepository(db).get_or_create("BRD-001", "PN-123", "A")
+    config = TestParameterConfigRepository(db).save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Config padrão",
+            nominal_voltage=5.0,
+            voltage_min=4.5,
+            voltage_max=5.5,
+            current_max=1.0,
+            test_duration_s=2.0,
+            power_sequence=[PowerStep(voltage=5.0, current=1.0, duration_s=2.0)],
+        )
+    )
+    session = TestSessionRepository(db).create(
+        TestSession(
+            id=None,
+            board_id=board.id,
+            serial_number="SN-001",
+            operator_id=operator.id,
+            test_parameter_config_id=config.id,
+            config_snapshot_json='{"nominal_voltage": 5.0}',
+            production_order="OP-9",
+            observations=None,
+            status=TestSessionStatus.RUNNING,
+            started_at="2026-06-25 10:00:00",
+        )
+    )
+    TestSessionRepository(db).update_status(session.id, TestSessionStatus.COMPLETED)
+    EvaluationRepository(db).create(
+        Evaluation(
+            id=None,
+            test_session_id=session.id,
+            operator_id=operator.id,
+            result=EvaluationResult.APPROVED,
+            comment=None,
+        )
+    )
+
+    window = MainWindow(app_config, db)
+    qtbot.addWidget(window)
+    window.registration_view.code_edit.setText("BRD-001")
+
+    output_dir = tmp_path / "chosen_folder"
+    output_dir.mkdir()
+    chosen = str(output_dir / "Relatorio_do_ensaio.docx")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (chosen, ""))
+    )
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+
+    window._board = board
+    window._operator = operator
+    window._on_evaluation_submitted({"evaluation": None, "session": session})
+
+    saved_files = list(output_dir.glob("*"))
+    assert any(p.suffix == ".docx" for p in saved_files)
+    assert any(p.suffix == ".xlsx" for p in saved_files)
+    assert any(p.suffix == ".pdf" for p in saved_files)
+
+    assert window._session is None
+    assert window._board is None
+    assert window._operator is None
+    assert window.registration_view.code_edit.text() == ""
+    assert window.stack.currentWidget() is window.registration_view
+
+    db.close()
