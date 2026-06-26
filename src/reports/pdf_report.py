@@ -6,6 +6,7 @@ apenas realçado na cor semântica correspondente, nunca calculado aqui.
 """
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -15,6 +16,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from config import BrandingConfig
+from reports.chart import render_samples_chart
 from reports.report_data import ReportData
 from reports.template_engine import (
     build_context,
@@ -23,6 +25,7 @@ from reports.template_engine import (
     render_fields,
     resolve_output_path,
     result_color_hex,
+    step_stats_rows,
 )
 
 
@@ -101,23 +104,39 @@ def generate_pdf_report(
     elements.append(eval_table)
     elements.append(Spacer(1, 10))
 
-    samples_section = template["sections"]["samples_table"]
-    elements.append(Paragraph(samples_section["heading"], heading_style))
-    sampled = evenly_sampled(data.samples, samples_section["max_rows"])
-    sample_rows = [
-        [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
-        for s in sampled
-    ]
-    elements.append(_data_table(samples_section["columns"], sample_rows, branding))
-    elements.append(Spacer(1, 10))
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        chart_png = render_samples_chart(data, branding, Path(tmp_dir) / "chart.png")
+        if chart_png is not None:
+            chart_section = template["sections"]["chart"]
+            elements.append(Paragraph(chart_section["heading"], heading_style))
+            elements.append(Image(str(chart_png), width=6.4 * inch, height=2.8 * inch))
+            elements.append(Spacer(1, 10))
 
-    events_section = template["sections"]["events_table"]
-    elements.append(Paragraph(events_section["heading"], heading_style))
-    event_rows = [[e.timestamp or "", e.level, e.source, e.message] for e in data.events]
-    elements.append(_data_table(events_section["columns"], event_rows, branding))
-    elements.append(Spacer(1, 12))
+        stats_rows = step_stats_rows(data)
+        if stats_rows:
+            stats_section = template["sections"]["step_stats_table"]
+            elements.append(Paragraph(stats_section["heading"], heading_style))
+            elements.append(_data_table(stats_section["columns"], stats_rows, branding))
+            elements.append(Spacer(1, 10))
 
-    elements.append(Paragraph(template["footer"].format(**context), footer_style))
+        samples_section = template["sections"]["samples_table"]
+        elements.append(Paragraph(samples_section["heading"], heading_style))
+        sampled = evenly_sampled(data.samples, samples_section["max_rows"])
+        sample_rows = [
+            [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
+            for s in sampled
+        ]
+        elements.append(_data_table(samples_section["columns"], sample_rows, branding))
+        elements.append(Spacer(1, 10))
 
-    doc.build(elements)
+        events_section = template["sections"]["events_table"]
+        elements.append(Paragraph(events_section["heading"], heading_style))
+        event_rows = [[e.timestamp or "", e.level, e.source, e.message] for e in data.events]
+        elements.append(_data_table(events_section["columns"], event_rows, branding))
+        elements.append(Spacer(1, 12))
+
+        elements.append(Paragraph(template["footer"].format(**context), footer_style))
+
+        # build() lê a imagem do disco; precisa ocorrer com o tmp_dir ainda aberto.
+        doc.build(elements)
     return output_path
