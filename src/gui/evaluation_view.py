@@ -39,9 +39,13 @@ class EvaluationView(QtWidgets.QWidget):
         self._operator: Operator | None = None
         self._state_machine: TestStateMachine | None = None
 
+        title_label = QtWidgets.QLabel("Avaliação manual do ensaio")
+        title_label.setObjectName("viewTitle")
+
         scroll = QtWidgets.QScrollArea(self)
         scroll.setWidgetResizable(True)
         outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.addWidget(title_label)
         outer_layout.addWidget(scroll)
 
         container = QtWidgets.QWidget()

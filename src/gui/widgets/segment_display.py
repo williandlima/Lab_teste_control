@@ -43,6 +43,8 @@ class SegmentDisplay(QtWidgets.QLabel):
         super().__init__(parent)
         self._unit = unit
         self._decimals = decimals
+        self._min_limit: float | None = None
+        self._max_limit: float | None = None
         self.setObjectName("segmentDisplay")
         self.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
@@ -58,5 +60,26 @@ class SegmentDisplay(QtWidgets.QLabel):
 
         self.set_value(0.0)
 
+    def set_limits(self, minimum: float | None, maximum: float | None) -> None:
+        """Define a faixa esperada; valores fora dela acendem o alarme visual."""
+        self._min_limit = minimum
+        self._max_limit = maximum
+
     def set_value(self, value: float) -> None:
         self.setText(f"{value:.{self._decimals}f} {self._unit}")
+        self._apply_alarm(self._is_out_of_range(value))
+
+    def _is_out_of_range(self, value: float) -> bool:
+        if self._min_limit is not None and value < self._min_limit:
+            return True
+        if self._max_limit is not None and value > self._max_limit:
+            return True
+        return False
+
+    def _apply_alarm(self, alarm: bool) -> None:
+        # Só repolir quando o estado muda, para não retrabalhar o estilo a cada amostra.
+        if self.property("alarm") == alarm:
+            return
+        self.setProperty("alarm", alarm)
+        self.style().unpolish(self)
+        self.style().polish(self)

@@ -244,3 +244,47 @@ def test_manual_output_dialog_energizes_and_reads_in_simulation(
 
     dialog._shutdown()
     assert not instrument.is_connected
+
+
+def test_step_indicator_marks_current_done_and_todo(qtbot) -> None:
+    from gui.widgets.step_indicator import StepIndicator
+
+    stepper = StepIndicator(["Cadastro", "Parâmetros", "Ensaio", "Avaliação"])
+    qtbot.addWidget(stepper)
+
+    stepper.set_current(2)
+    states = [label.property("stepState") for label in stepper._step_labels]
+    assert states == ["done", "done", "current", "todo"]
+
+
+def test_segment_display_alarm_toggles_out_of_range(qtbot) -> None:
+    from gui.widgets.segment_display import SegmentDisplay
+
+    display = SegmentDisplay(unit="V", decimals=3)
+    qtbot.addWidget(display)
+    display.set_limits(4.5, 5.5)
+
+    display.set_value(5.0)
+    assert display.property("alarm") is False
+
+    display.set_value(6.2)  # acima do máximo -> alarme
+    assert display.property("alarm") is True
+
+    display.set_value(4.9)  # de volta à faixa -> sem alarme
+    assert display.property("alarm") is False
+
+
+def test_show_toast_creates_non_blocking_widget(qtbot) -> None:
+    from PySide6 import QtWidgets
+
+    from gui.widgets.toast import show_toast
+
+    host = QtWidgets.QWidget()
+    host.resize(400, 300)
+    qtbot.addWidget(host)
+    host.show()
+
+    toast = show_toast(host, "Mensagem de teste", level="success")
+    assert toast.parentWidget() is host
+    assert toast.text() == "Mensagem de teste"
+    assert toast.property("toastLevel") == "success"

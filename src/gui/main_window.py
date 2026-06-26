@@ -53,6 +53,8 @@ from gui.widgets.header_bar import HeaderBar
 from gui.widgets.live_chart import LiveChart
 from gui.widgets.segment_display import SegmentDisplay
 from gui.widgets.status_badge import StatusBadge
+from gui.widgets.step_indicator import StepIndicator
+from gui.widgets.toast import show_toast
 from hardware.power_supply import PowerSupplyE363x
 from logger import UI_LOG_BUFFER
 from reports.excel_report import generate_excel_report
@@ -126,6 +128,10 @@ class _MonitoringPanel(QtWidgets.QWidget):
         super().__init__(parent)
         layout = QtWidgets.QVBoxLayout(self)
 
+        title_label = QtWidgets.QLabel("Monitoramento do ensaio")
+        title_label.setObjectName("viewTitle")
+        layout.addWidget(title_label)
+
         self._total_steps = 1
         status_row = QtWidgets.QHBoxLayout()
         self.state_label = QtWidgets.QLabel("Estado: —")
@@ -185,6 +191,8 @@ class _MonitoringPanel(QtWidgets.QWidget):
         self.cycle_label.setText(
             f"Ciclo: 1 de {self._total_steps}" if self._total_steps > 1 else "Passo único"
         )
+        self.voltage_display.set_limits(voltage_min, voltage_max)
+        self.current_display.set_limits(None, current_max)
         self.remote_badge.set_unknown()
         self.output_badge.set_unknown()
         self.protection_badge.set_active(True)
@@ -254,6 +262,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.monitoring_panel = _MonitoringPanel()
         self.evaluation_view = EvaluationView(self._evaluation_repo)
 
+        self.step_indicator = StepIndicator(["Cadastro", "Parâmetros", "Ensaio", "Avaliação"])
+
         self.stack = QtWidgets.QStackedWidget()
         self.stack.addWidget(self.registration_view)
         self.stack.addWidget(self.parameters_view)
@@ -275,6 +285,7 @@ class MainWindow(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget()
         central_layout = QtWidgets.QVBoxLayout(central)
         central_layout.addWidget(self.header)
+        central_layout.addWidget(self.step_indicator)
         central_layout.addWidget(self.stack, stretch=1)
         central_layout.addLayout(log_row)
         self.setCentralWidget(central)
@@ -501,16 +512,10 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Erro ao salvar relatório", str(exc))
             return
 
-        QtWidgets.QMessageBox.information(
-            self,
-            "Relatório salvo",
-            "Relatório salvo em:\n" + "\n".join(str(path) for path in saved_paths),
-        )
-
-    _STEP_NAMES = {0: "Cadastro", 1: "Parâmetros", 2: "Monitoramento", 3: "Avaliação manual"}
+        show_toast(self, f"Relatório salvo em {output_dir}", level="success", duration_ms=4000)
 
     def _update_step_indicator(self, index: int) -> None:
-        self.header.set_step(self._STEP_NAMES.get(index, ""))
+        self.step_indicator.set_current(index)
 
     def _on_manual_output(self) -> None:
         """Abre o controle de saída manual (teste rápido), isolado do ensaio.
@@ -520,14 +525,10 @@ class MainWindow(QtWidgets.QMainWindow):
         OUTPUT OFF ao fechar (failsafe).
         """
         if self._worker is not None and self._worker.isRunning():
-            QtWidgets.QMessageBox.information(
-                self, "Teste em andamento", "Aguarde o término do ensaio para usar a saída manual."
-            )
+            show_toast(self, "Aguarde o término do ensaio para usar a saída manual.", level="warning")
             return
         if self._probe_worker is not None and self._probe_worker.isRunning():
-            QtWidgets.QMessageBox.information(
-                self, "Sondagem em andamento", "Aguarde o término da sondagem da porta."
-            )
+            show_toast(self, "Aguarde o término da sondagem da porta.", level="warning")
             return
         dialog = ManualOutputDialog(
             self._instrument,
@@ -541,9 +542,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_test_connection(self, port: str) -> None:
         if self._worker is not None and self._worker.isRunning():
-            QtWidgets.QMessageBox.information(
-                self, "Teste em andamento", "Aguarde o término do teste para sondar a porta."
-            )
+            show_toast(self, "Aguarde o término do teste para sondar a porta.", level="warning")
             return
         if self._probe_worker is not None and self._probe_worker.isRunning():
             return
@@ -559,9 +558,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_probe_success(self, identity: str) -> None:
         self.header.set_connection_state(True, f"Conectada: {identity}")
-        QtWidgets.QMessageBox.information(
-            self, "Conexão OK", f"Fonte identificada:\n{identity}"
-        )
+        show_toast(self, f"Conexão OK — {identity}", level="success")
 
     def _on_probe_failure(self, message: str) -> None:
         self.header.set_connection_state(False, message)

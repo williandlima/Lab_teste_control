@@ -32,9 +32,13 @@ class TestParametersView(QtWidgets.QWidget):
         self._test_defaults = test_defaults
         self._board: Board | None = None
 
+        title_label = QtWidgets.QLabel("Parâmetros do ensaio")
+        title_label.setObjectName("viewTitle")
+
         scroll = QtWidgets.QScrollArea(self)
         scroll.setWidgetResizable(True)
         outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.addWidget(title_label)
         outer_layout.addWidget(scroll)
 
         form_container = QtWidgets.QWidget()
