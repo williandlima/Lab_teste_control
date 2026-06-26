@@ -177,4 +177,70 @@ def test_evaluation_submitted_saves_report_and_clears_registration(
     assert window.registration_view.code_edit.text() == ""
     assert window.stack.currentWidget() is window.registration_view
 
+
+def test_parameters_view_back_button_emits_signal(qtbot, app_config, tmp_path: Path) -> None:
+    from database.repositories import TestParameterConfigRepository
+    from dataclasses import asdict
+    from gui.test_parameters_view import TestParametersView
+
+    db = Database(tmp_path / "back.db")
+    db.connect()
+    view = TestParametersView(TestParameterConfigRepository(db), asdict(app_config.test_defaults))
+    qtbot.addWidget(view)
+
+    with qtbot.waitSignal(view.back_requested, timeout=1000):
+        view.back_button.click()
     db.close()
+
+
+def test_monitoring_panel_cycle_label_tracks_step_index(qtbot) -> None:
+    from core.sampling_buffer import Sample
+    from gui.main_window import _MonitoringPanel
+
+    panel = _MonitoringPanel()
+    qtbot.addWidget(panel)
+
+    # Passo único: rótulo informa que não há ciclos.
+    panel.reset(4.5, 5.5, 2.0, 1.0, total_steps=1)
+    assert panel.cycle_label.text() == "Passo único"
+
+    # Multi-step: o rótulo acompanha o step_index das amostras (1-based).
+    panel.reset(4.5, 5.5, 2.0, 1.0, total_steps=3)
+    assert panel.cycle_label.text() == "Ciclo: 1 de 3"
+    panel.on_sample(Sample(timestamp=0.0, step_index=2, voltage=5.0, current=0.5))
+    assert panel.cycle_label.text() == "Ciclo: 3 de 3"
+
+
+def test_manual_output_dialog_energizes_and_reads_in_simulation(
+    qtbot, app_config, monkeypatch
+) -> None:
+    """Saída manual liga em modo simulação, lê tensão/corrente e desliga com segurança."""
+    from PySide6 import QtWidgets
+
+    from gui.manual_output_dialog import ManualOutputDialog
+    from hardware.power_supply import PowerSupplyE363x
+
+    instrument = PowerSupplyE363x(app_config.serial, app_config.reconnection)
+    dialog = ManualOutputDialog(
+        instrument, simulate=True, port=None, default_voltage=5.0, default_current=1.0
+    )
+    qtbot.addWidget(dialog)
+
+    # Confirmação de energização sempre "Sim" no teste.
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes),
+    )
+
+    dialog._on_turn_on()
+    qtbot.waitUntil(lambda: dialog._output_on and dialog.voltage_display.text() != "0.000 V", timeout=5000)
+    assert instrument.is_connected
+    assert dialog.off_button.isEnabled()
+
+    dialog._on_turn_off()
+    qtbot.waitUntil(lambda: not dialog._output_on, timeout=5000)
+    assert dialog.on_button.isEnabled()
+
+    dialog._shutdown()
+    assert not instrument.is_connected
