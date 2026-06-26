@@ -154,8 +154,10 @@ def test_evaluation_submitted_saves_report_and_clears_registration(
     window.registration_view.code_edit.setText("BRD-001")
 
     output_dir = tmp_path / "chosen_folder"
+    output_dir.mkdir()
+    chosen = str(output_dir / "Relatorio_do_ensaio.docx")
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(output_dir))
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (chosen, ""))
     )
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))

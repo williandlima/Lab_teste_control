@@ -23,7 +23,7 @@ from reports.template_engine import (
     evenly_sampled,
     load_template,
     render_fields,
-    report_filename,
+    resolve_output_path,
     result_color_hex,
 )
 
@@ -72,7 +72,9 @@ def _add_data_table(
             cells[idx].text = value
 
 
-def generate_word_report(data: ReportData, branding: BrandingConfig, output_dir: Path) -> Path:
+def generate_word_report(
+    data: ReportData, branding: BrandingConfig, output_dir: Path, base_name: str | None = None
+) -> Path:
     template = load_template()
     context = build_context(data, branding)
 
@@ -126,7 +128,6 @@ def generate_word_report(data: ReportData, branding: BrandingConfig, output_dir:
     footer.runs[0].font.size = Pt(8)
     footer.runs[0].font.italic = True
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / report_filename(data, "docx")
+    output_path = resolve_output_path(data, output_dir, "docx", base_name)
     doc.save(output_path)
     return output_path

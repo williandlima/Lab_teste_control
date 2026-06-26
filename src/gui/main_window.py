@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from dataclasses import asdict
 from pathlib import Path
 
@@ -56,7 +57,10 @@ from logger import UI_LOG_BUFFER
 from reports.excel_report import generate_excel_report
 from reports.pdf_report import generate_pdf_report
 from reports.report_data import assemble_report_data
+from reports.template_engine import report_filename
 from reports.word_report import generate_word_report
+
+_logger = logging.getLogger("app")
 
 _TERMINATION_TO_SESSION_STATUS = {
     TestState.COMPLETED: TestSessionStatus.COMPLETED,
@@ -157,7 +161,7 @@ class _MonitoringPanel(QtWidgets.QWidget):
 
         self.event_log_edit = QtWidgets.QPlainTextEdit()
         self.event_log_edit.setReadOnly(True)
-        self.event_log_edit.setMaximumHeight(120)
+        self.event_log_edit.setMaximumHeight(80)
         layout.addWidget(self.event_log_edit)
 
     def reset(self, voltage_min: float, voltage_max: float, duration_s: float, current_max: float) -> None:
@@ -235,14 +239,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.app_log_edit = QtWidgets.QPlainTextEdit()
         self.app_log_edit.setReadOnly(True)
-        self.app_log_edit.setMaximumHeight(120)
+        self.app_log_edit.setMaximumHeight(72)
+
+        # Log recolhível: ocupa o mínimo de espaço na tela e só expande quando
+        # o operador marca a caixa "Log da aplicação" (começa recolhido).
+        self.log_group = QtWidgets.QGroupBox("Log da aplicação")
+        self.log_group.setCheckable(True)
+        self.log_group.setChecked(False)
+        log_layout = QtWidgets.QVBoxLayout(self.log_group)
+        log_layout.addWidget(self.app_log_edit)
+        self.app_log_edit.setVisible(False)
+        self.log_group.toggled.connect(self.app_log_edit.setVisible)
 
         central = QtWidgets.QWidget()
         central_layout = QtWidgets.QVBoxLayout(central)
         central_layout.addWidget(self.header)
         central_layout.addWidget(self.stack, stretch=1)
-        central_layout.addWidget(QtWidgets.QLabel("Log da aplicação:"))
-        central_layout.addWidget(self.app_log_edit)
+        central_layout.addWidget(self.log_group)
         self.setCentralWidget(central)
 
         self.registration_view.registration_submitted.connect(self._on_registration_submitted)
@@ -389,20 +402,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.setCurrentWidget(self.registration_view)
 
     def _save_report(self, test_session_id: int) -> None:
-        """Salva o relatório do ensaio com escolha de pasta pelo operador.
+        """Salva o relatório do ensaio com diálogo "Salvar como" do Windows.
 
-        Mesmo modelo de "Salvar como" do Word: o operador decide onde gravar,
-        em vez de um caminho fixo. Cancelar o diálogo não impede o avanço
-        para o próximo cadastro — só pula a geração do relatório.
+        O operador escolhe pasta E nome do arquivo no diálogo nativo (mesmo
+        modelo do Word). São gerados os três formatos (Word/Excel/PDF) com o
+        nome escolhido. Cancelar o diálogo não impede o avanço para o próximo
+        cadastro — só pula a geração do relatório.
         """
-        folder = QtWidgets.QFileDialog.getExistingDirectory(
-            self,
-            "Salvar relatório do ensaio em…",
-            str(self._app_config.paths.exports_dir),
-        )
-        if not folder:
-            return
-
         data = assemble_report_data(
             test_session_id,
             self._session_repo,
@@ -412,14 +418,29 @@ class MainWindow(QtWidgets.QMainWindow):
             self._evaluation_repo,
             self._event_repo,
         )
-        output_dir = Path(folder)
+
+        default_name = report_filename(data, "docx")
+        default_path = str(self._app_config.paths.exports_dir / default_name)
+        chosen, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Salvar relatório do ensaio",
+            default_path,
+            "Relatório FCT (*.docx *.xlsx *.pdf)",
+        )
+        if not chosen:
+            return
+
+        chosen_path = Path(chosen)
+        output_dir = chosen_path.parent
+        base_name = chosen_path.stem
         try:
             saved_paths = [
-                generate_word_report(data, self._app_config.branding, output_dir),
-                generate_excel_report(data, self._app_config.branding, output_dir),
-                generate_pdf_report(data, self._app_config.branding, output_dir),
+                generate_word_report(data, self._app_config.branding, output_dir, base_name),
+                generate_excel_report(data, self._app_config.branding, output_dir, base_name),
+                generate_pdf_report(data, self._app_config.branding, output_dir, base_name),
             ]
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 — falha de geração não pode travar o fluxo
+            _logger.exception("Falha ao gerar relatório do ensaio")
             QtWidgets.QMessageBox.warning(self, "Erro ao salvar relatório", str(exc))
             return
 
