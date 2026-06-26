@@ -42,6 +42,13 @@ reconnection:
   backoff_multiplier: 2.0
   heartbeat_interval_s: 5.0
 
+# Rastreabilidade da fonte física (preencha conforme o instrumento da bancada).
+# Estes dados são congelados no histórico de cada ensaio e aparecem no relatório.
+instrument:
+  model: null            # ex.: "Keysight E3633A"
+  asset_id: null         # patrimônio/etiqueta interna, ex.: "AVB-INST-0042"
+  calibration_due: null  # validade da calibração, ex.: "2026-12-31"
+
 test_defaults:
   polling_rate_hz: 1.5
   stabilization_timeout_s: 10.0

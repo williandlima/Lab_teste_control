@@ -106,7 +106,7 @@ def _build_summary_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
     ws.cell(row=row, column=1, value=context["company_name"]).font = Font(italic=True, size=11)
     row += 2
 
-    for key in ("identification", "parameters", "execution"):
+    for key in ("identification", "parameters", "execution", "traceability"):
         section = template["sections"][key]
         row = _write_heading(ws, row, section["heading"], branding)
         row = _write_fields(ws, row, render_fields(section["fields"], context))

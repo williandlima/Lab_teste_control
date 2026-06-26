@@ -84,3 +84,6 @@ def test_state_machine_completes_in_simulation_mode() -> None:
     assert result == TestState.COMPLETED
     assert len(samples) > 0
     assert all(4.5 <= s.voltage <= 5.5 for s in samples)
+    # Rastreabilidade: a identidade (*IDN?) foi capturada durante a conexão.
+    assert instrument.last_identity is not None
+    assert "," in instrument.last_identity

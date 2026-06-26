@@ -202,6 +202,45 @@ def test_assemble_report_data_computes_step_stats(populated_session_id) -> None:
     assert st.current_over_limit == 0
 
 
+def test_traceability_identity_persists_and_reaches_context(populated_session_id, branding) -> None:
+    from reports.template_engine import build_context
+
+    db, session_id = populated_session_id
+    idn = "Agilent Technologies,E3633A,MY12345678,1.6-5.0-2.0"
+    TestSessionRepository(db).set_instrument_identity(session_id, idn)
+
+    data = _data(db, session_id)
+    assert data.session.instrument_identity == idn
+
+    context = build_context(data, branding)
+    assert context["instrument_identity"] == idn
+
+
+def test_traceability_calibration_frozen_in_snapshot(populated_session_id, branding) -> None:
+    """Modelo/patrimônio/calibração vêm do config_snapshot congelado da sessão."""
+    from reports.template_engine import build_context
+
+    db, session_id = populated_session_id
+    # Simula o que o main_window grava no snapshot no início do ensaio.
+    db.connection.execute(
+        "UPDATE test_sessions SET config_snapshot_json = ?, app_version = ? WHERE id = ?",
+        (
+            '{"voltage_min": 4.5, "voltage_max": 5.5, "current_max": 1.0, '
+            '"instrument_model": "Keysight E3633A", "instrument_asset_id": "AVB-0042", '
+            '"instrument_calibration_due": "2026-12-31"}',
+            "0.1.0",
+            session_id,
+        ),
+    )
+    db.connection.commit()
+
+    context = build_context(_data(db, session_id), branding)
+    assert context["instrument_model"] == "Keysight E3633A"
+    assert context["instrument_asset_id"] == "AVB-0042"
+    assert context["instrument_calibration_due"] == "2026-12-31"
+    assert context["app_version"] == "0.1.0"
+
+
 def test_render_samples_chart_creates_png(populated_session_id, branding, tmp_path: Path) -> None:
     from reports.chart import render_samples_chart
 

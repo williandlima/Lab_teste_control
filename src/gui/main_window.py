@@ -57,6 +57,7 @@ from gui.widgets.step_indicator import StepIndicator
 from gui.widgets.toast import show_toast
 from hardware.power_supply import PowerSupplyE363x
 from logger import UI_LOG_BUFFER
+from version import APP_VERSION
 from reports.excel_report import generate_excel_report
 from reports.pdf_report import generate_pdf_report
 from reports.report_data import assemble_report_data
@@ -324,6 +325,14 @@ class MainWindow(QtWidgets.QMainWindow):
         registration = self._registration_data
         assert self._board is not None and self._operator is not None and registration is not None
 
+        # Congela no snapshot os dados de rastreabilidade do instrumento válidos
+        # NESTE ensaio (não o valor futuro do YAML).
+        snapshot = asdict(run_config)
+        instrument_cfg = self._app_config.instrument
+        snapshot["instrument_model"] = instrument_cfg.model
+        snapshot["instrument_asset_id"] = instrument_cfg.asset_id
+        snapshot["instrument_calibration_due"] = instrument_cfg.calibration_due
+
         session = self._session_repo.create(
             TestSession(
                 id=None,
@@ -331,11 +340,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 serial_number=registration["serial_number"],
                 operator_id=self._operator.id,
                 test_parameter_config_id=config.id,
-                config_snapshot_json=json.dumps(asdict(run_config)),
+                config_snapshot_json=json.dumps(snapshot),
                 production_order=registration["production_order"],
                 observations=registration["observations"],
                 status=TestSessionStatus.RUNNING,
                 started_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                app_version=APP_VERSION,
             )
         )
         self._session = session
@@ -427,6 +437,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._session_repo.update_status(
             self._session.id, status, finished_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
+        # Rastreabilidade: grava a identidade (*IDN?) da fonte usada no ensaio.
+        self._session_repo.set_instrument_identity(self._session.id, self._instrument.last_identity)
         self.header.test_button.setEnabled(True)
 
         # COMM_ERROR = o teste NÃO chegou a comunicar com a fonte (falha já na

@@ -88,7 +88,7 @@ def generate_pdf_report(
     elements.append(Paragraph(context["company_name"], subtitle_style))
     elements.append(Spacer(1, 12))
 
-    for key in ("identification", "parameters", "execution"):
+    for key in ("identification", "parameters", "execution", "traceability"):
         section = template["sections"][key]
         elements.append(Paragraph(section["heading"], heading_style))
         elements.append(_fields_table(render_fields(section["fields"], context)))
