@@ -45,6 +45,7 @@ from database.repositories import (
 )
 from drivers.exceptions import InstrumentCommunicationError
 from gui.evaluation_view import EvaluationView
+from gui.manual_output_dialog import ManualOutputDialog
 from gui.registration_view import RegistrationView
 from gui.styles import load_theme
 from gui.test_parameters_view import TestParametersView
@@ -125,8 +126,15 @@ class _MonitoringPanel(QtWidgets.QWidget):
         super().__init__(parent)
         layout = QtWidgets.QVBoxLayout(self)
 
+        self._total_steps = 1
+        status_row = QtWidgets.QHBoxLayout()
         self.state_label = QtWidgets.QLabel("Estado: —")
-        layout.addWidget(self.state_label)
+        self.cycle_label = QtWidgets.QLabel("Ciclo: —")
+        self.cycle_label.setObjectName("cycleLabel")
+        status_row.addWidget(self.state_label)
+        status_row.addStretch()
+        status_row.addWidget(self.cycle_label)
+        layout.addLayout(status_row)
 
         badges_layout = QtWidgets.QHBoxLayout()
         self.remote_badge = StatusBadge("REMOTO")
@@ -164,8 +172,19 @@ class _MonitoringPanel(QtWidgets.QWidget):
         self.event_log_edit.setMaximumHeight(80)
         layout.addWidget(self.event_log_edit)
 
-    def reset(self, voltage_min: float, voltage_max: float, duration_s: float, current_max: float) -> None:
+    def reset(
+        self,
+        voltage_min: float,
+        voltage_max: float,
+        duration_s: float,
+        current_max: float,
+        total_steps: int = 1,
+    ) -> None:
+        self._total_steps = max(1, total_steps)
         self.state_label.setText("Estado: —")
+        self.cycle_label.setText(
+            f"Ciclo: 1 de {self._total_steps}" if self._total_steps > 1 else "Passo único"
+        )
         self.remote_badge.set_unknown()
         self.output_badge.set_unknown()
         self.protection_badge.set_active(True)
@@ -188,6 +207,8 @@ class _MonitoringPanel(QtWidgets.QWidget):
     def on_sample(self, sample: Sample) -> None:
         self.voltage_display.set_value(sample.voltage)
         self.current_display.set_value(sample.current)
+        if self._total_steps > 1:
+            self.cycle_label.setText(f"Ciclo: {sample.step_index + 1} de {self._total_steps}")
 
     def append_event(self, level: str, message: str) -> None:
         self.event_log_edit.appendPlainText(f"[{level}] {message}")
@@ -224,6 +245,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.header = HeaderBar(app_config.branding)
         self.header.test_connection_requested.connect(self._on_test_connection)
+        self.header.manual_output_requested.connect(self._on_manual_output)
         # Estado inicial do botão "Simulação" segue o config (serial.simulate).
         self.header.set_simulation_enabled(app_config.serial.simulate)
 
@@ -259,6 +281,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.registration_view.registration_submitted.connect(self._on_registration_submitted)
         self.parameters_view.parameters_submitted.connect(self._on_parameters_submitted)
+        self.parameters_view.back_requested.connect(self._on_parameters_back)
         self.monitoring_panel.abort_requested.connect(self._on_abort_requested)
         self.evaluation_view.evaluation_submitted.connect(self._on_evaluation_submitted)
 
@@ -274,6 +297,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._registration_data = data
         self.parameters_view.set_board(self._board)
         self.stack.setCurrentWidget(self.parameters_view)
+
+    def _on_parameters_back(self) -> None:
+        """Volta aos dados de cadastro sem perder nada (edição não-destrutiva).
+
+        Os campos do cadastro permanecem preenchidos; o operador pode ajustar e
+        seguir de novo. A config em si é gravada por upsert no 'Salvar e
+        continuar', então voltar e reentrar apenas sobrescreve a mesma config.
+        """
+        self.stack.setCurrentWidget(self.registration_view)
 
     def _on_parameters_submitted(self, data: dict) -> None:
         config = data["test_parameter_config"]
@@ -329,7 +361,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._instrument.set_simulate(self.header.simulation_enabled())
 
         self.monitoring_panel.reset(
-            run_config.voltage_min, run_config.voltage_max, run_config.test_duration_s, run_config.current_max
+            run_config.voltage_min,
+            run_config.voltage_max,
+            run_config.test_duration_s,
+            run_config.current_max,
+            total_steps=len(run_config.steps()),
         )
         self.header.test_button.setEnabled(False)  # sem sondar a porta durante o teste
         self.stack.setCurrentWidget(self.monitoring_panel)
@@ -475,6 +511,33 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_step_indicator(self, index: int) -> None:
         self.header.set_step(self._STEP_NAMES.get(index, ""))
+
+    def _on_manual_output(self) -> None:
+        """Abre o controle de saída manual (teste rápido), isolado do ensaio.
+
+        Bloqueado enquanto um ensaio automático ou uma sondagem estiver em
+        curso — o instrumento tem um dono por vez. O diálogo é modal e garante
+        OUTPUT OFF ao fechar (failsafe).
+        """
+        if self._worker is not None and self._worker.isRunning():
+            QtWidgets.QMessageBox.information(
+                self, "Teste em andamento", "Aguarde o término do ensaio para usar a saída manual."
+            )
+            return
+        if self._probe_worker is not None and self._probe_worker.isRunning():
+            QtWidgets.QMessageBox.information(
+                self, "Sondagem em andamento", "Aguarde o término da sondagem da porta."
+            )
+            return
+        dialog = ManualOutputDialog(
+            self._instrument,
+            simulate=self.header.simulation_enabled(),
+            port=self.header.selected_port() or None,
+            parent=self,
+        )
+        dialog.exec()
+        # Após o uso manual, a porta foi fechada pelo failsafe do diálogo.
+        self.header.set_connection_unknown("Saída manual encerrada; reconfirme a conexão.")
 
     def _on_test_connection(self, port: str) -> None:
         if self._worker is not None and self._worker.isRunning():

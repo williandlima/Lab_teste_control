@@ -23,6 +23,8 @@ _AUTO_LABEL = "Automático (config / VID-PID)"
 class HeaderBar(QtWidgets.QWidget):
     # Emite a porta escolhida ("" = automático) quando o operador pede o teste.
     test_connection_requested = QtCore.Signal(str)
+    # Pedido para abrir o controle de saída manual (teste rápido).
+    manual_output_requested = QtCore.Signal()
 
     def __init__(self, branding: BrandingConfig, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -53,6 +55,14 @@ class HeaderBar(QtWidgets.QWidget):
         self.test_button = QtWidgets.QPushButton("Testar conexão")
         self.test_button.clicked.connect(self._emit_test_request)
         layout.addWidget(self.test_button)
+
+        # Saída manual (teste rápido): liga/desliga a saída fora do ensaio.
+        self.manual_output_button = QtWidgets.QPushButton("Saída manual…")
+        self.manual_output_button.setToolTip(
+            "Abre o controle manual da saída (ON/OFF) para uma verificação rápida em bancada."
+        )
+        self.manual_output_button.clicked.connect(self.manual_output_requested.emit)
+        layout.addWidget(self.manual_output_button)
 
         # Modo simulação: roda o ensaio com uma fonte virtual, sem hardware.
         self.simulate_check = QtWidgets.QCheckBox("Simulação")

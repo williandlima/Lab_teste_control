@@ -17,6 +17,7 @@ from database.repositories import TestParameterConfigRepository
 
 class TestParametersView(QtWidgets.QWidget):
     parameters_submitted = QtCore.Signal(dict)
+    back_requested = QtCore.Signal()
 
     _COLUMN_LABELS = ("Tensão (V)", "Corrente máx. (A)", "Duração (s)")
 
@@ -109,9 +110,15 @@ class TestParametersView(QtWidgets.QWidget):
         sequence_layout.addLayout(sequence_buttons)
         form_layout.addWidget(sequence_group)
 
+        actions_row = QtWidgets.QHBoxLayout()
+        self.back_button = QtWidgets.QPushButton("Voltar")
+        self.back_button.clicked.connect(self.back_requested.emit)
         self.submit_button = QtWidgets.QPushButton("Salvar e continuar")
         self.submit_button.clicked.connect(self._on_submit)
-        form_layout.addWidget(self.submit_button)
+        actions_row.addWidget(self.back_button)
+        actions_row.addStretch()
+        actions_row.addWidget(self.submit_button)
+        form_layout.addLayout(actions_row)
         form_layout.addStretch()
 
     @staticmethod
