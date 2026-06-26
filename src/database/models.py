@@ -31,6 +31,7 @@ class EvaluationResult(str, Enum):
 class Operator:
     id: int | None
     name: str
+    if_number: str | None = None
     created_at: str | None = None
 
 

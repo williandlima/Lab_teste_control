@@ -29,13 +29,19 @@ class OperatorRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def get_or_create(self, name: str) -> Operator:
+    def get_or_create(self, name: str, if_number: str | None = None) -> Operator:
         conn = self._db.connection
         row = conn.execute("SELECT * FROM operators WHERE name = ?", (name,)).fetchone()
         if row is None:
-            cursor = conn.execute("INSERT INTO operators (name) VALUES (?)", (name,))
+            cursor = conn.execute(
+                "INSERT INTO operators (name, if_number) VALUES (?, ?)", (name, if_number)
+            )
             conn.commit()
             row = conn.execute("SELECT * FROM operators WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        elif if_number is not None and if_number != row["if_number"]:
+            conn.execute("UPDATE operators SET if_number = ? WHERE id = ?", (if_number, row["id"]))
+            conn.commit()
+            row = conn.execute("SELECT * FROM operators WHERE id = ?", (row["id"],)).fetchone()
         return self._to_model(row)
 
     def list_all(self) -> list[Operator]:
@@ -52,7 +58,9 @@ class OperatorRepository:
 
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Operator:
-        return Operator(id=row["id"], name=row["name"], created_at=row["created_at"])
+        return Operator(
+            id=row["id"], name=row["name"], if_number=row["if_number"], created_at=row["created_at"]
+        )
 
 
 class BoardRepository:
