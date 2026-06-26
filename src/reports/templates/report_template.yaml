@@ -44,6 +44,22 @@ sections:
       - ["Data da avaliação", "{evaluated_at}"]
       - ["Comentário", "{evaluation_comment}"]
 
+  chart:
+    heading: "Gráfico tensão/corrente × tempo"
+
+  step_stats_table:
+    heading: "Estatísticas por ciclo (informativo, não é veredito)"
+    columns:
+      - "Ciclo"
+      - "Amostras"
+      - "Tensão méd. (V)"
+      - "Tensão desv. (V)"
+      - "Tensão mín/máx (V)"
+      - "Corrente méd. (A)"
+      - "Corrente mín/máx (A)"
+      - "V fora da faixa"
+      - "I acima do limite"
+
   samples_table:
     heading: "Amostras (resumo)"
     columns: ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)"]

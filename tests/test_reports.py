@@ -187,6 +187,52 @@ def test_generate_report_honors_operator_chosen_name(populated_session_id, brand
     assert path.exists()
 
 
+def test_assemble_report_data_computes_step_stats(populated_session_id) -> None:
+    db, session_id = populated_session_id
+    data = _data(db, session_id)
+
+    assert len(data.step_stats) == 1  # passo único na fixture
+    st = data.step_stats[0]
+    assert st.step_index == 0
+    assert st.sample_count == 5
+    assert st.voltage_min == pytest.approx(5.0)
+    assert st.voltage_max == pytest.approx(5.04)
+    # Todas as amostras estão dentro da faixa 4.5–5.5 e abaixo de 1.0 A.
+    assert st.voltage_out_of_range == 0
+    assert st.current_over_limit == 0
+
+
+def test_render_samples_chart_creates_png(populated_session_id, branding, tmp_path: Path) -> None:
+    from reports.chart import render_samples_chart
+
+    db, session_id = populated_session_id
+    data = _data(db, session_id)
+    out = render_samples_chart(data, branding, tmp_path / "chart.png")
+
+    assert out is not None and out.exists()
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # assinatura PNG
+
+
+def test_excel_report_has_separate_sheets_with_numeric_samples(
+    populated_session_id, branding, tmp_path: Path
+) -> None:
+    from openpyxl import load_workbook
+
+    db, session_id = populated_session_id
+    data = _data(db, session_id)
+    path = generate_excel_report(data, branding, tmp_path / "exports")
+
+    wb = load_workbook(path)
+    assert wb.sheetnames == ["Resumo", "Amostras", "Eventos"]
+
+    ws = wb["Amostras"]
+    # 1 cabeçalho + 5 amostras.
+    assert ws.max_row == 6
+    # Tensão/corrente gravadas como número real (não texto).
+    assert isinstance(ws["C2"].value, (int, float))
+    assert isinstance(ws["D2"].value, (int, float))
+
+
 def test_generate_reports_without_evaluation_yet(populated_session_id, branding, tmp_path: Path) -> None:
     """Sessão ainda sem avaliação manual: relatório deve mostrar 'Pendente', sem quebrar."""
     db, session_id = populated_session_id

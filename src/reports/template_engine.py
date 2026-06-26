@@ -104,6 +104,26 @@ def resolve_output_path(data, output_dir, extension: str, base_name: str | None 
     return output_dir / report_filename(data, extension)
 
 
+def step_stats_rows(data: ReportData) -> list[list[str]]:
+    """Linhas da tabela de estatísticas por ciclo (compartilhada Word/PDF)."""
+    rows: list[list[str]] = []
+    for st in data.step_stats:
+        rows.append(
+            [
+                str(st.step_index + 1),
+                str(st.sample_count),
+                f"{st.voltage_mean:.3f}",
+                f"{st.voltage_std:.3f}",
+                f"{st.voltage_min:.3f} / {st.voltage_max:.3f}",
+                f"{st.current_mean:.3f}",
+                f"{st.current_min:.3f} / {st.current_max:.3f}",
+                str(st.voltage_out_of_range),
+                str(st.current_over_limit),
+            ]
+        )
+    return rows
+
+
 def evenly_sampled(items: list[Any], max_items: int) -> list[Any]:
     """Subamostra uniforme para tabelas de relatório (granularidade completa fica no banco)."""
     if max_items <= 0 or len(items) <= max_items:

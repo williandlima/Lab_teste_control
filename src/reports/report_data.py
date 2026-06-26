@@ -8,6 +8,7 @@ um único lugar.
 from __future__ import annotations
 
 import json
+import statistics
 from dataclasses import dataclass
 
 from database.models import (
@@ -29,6 +30,29 @@ from database.repositories import (
 
 
 @dataclass(frozen=True)
+class StepStats:
+    """Estatísticas factuais de um passo/ciclo — informativo, nunca veredito.
+
+    `voltage_out_of_range` conta amostras fora da faixa de referência
+    (voltage_min/voltage_max) e `current_over_limit` as que passaram do
+    current_max. São contagens descritivas para o operador/qualidade
+    analisarem; a decisão PASS/FAIL continua exclusivamente manual.
+    """
+    step_index: int
+    sample_count: int
+    voltage_mean: float
+    voltage_std: float
+    voltage_min: float
+    voltage_max: float
+    current_mean: float
+    current_std: float
+    current_min: float
+    current_max: float
+    voltage_out_of_range: int
+    current_over_limit: int
+
+
+@dataclass(frozen=True)
 class ReportData:
     session: TestSession
     board: Board
@@ -41,6 +65,7 @@ class ReportData:
     voltage_max_observed: float | None
     current_min_observed: float | None
     current_max_observed: float | None
+    step_stats: list[StepStats]
 
 
 def assemble_report_data(
@@ -76,4 +101,48 @@ def assemble_report_data(
         voltage_max_observed=max(voltages) if voltages else None,
         current_min_observed=min(currents) if currents else None,
         current_max_observed=max(currents) if currents else None,
+        step_stats=_compute_step_stats(samples, config_snapshot),
     )
+
+
+def _compute_step_stats(
+    samples: list[MonitoredSample], config_snapshot: dict
+) -> list[StepStats]:
+    """Agrega estatísticas descritivas por passo (step_index) das amostras."""
+    v_min_ref = config_snapshot.get("voltage_min")
+    v_max_ref = config_snapshot.get("voltage_max")
+    i_max_ref = config_snapshot.get("current_max")
+
+    by_step: dict[int, list[MonitoredSample]] = {}
+    for sample in samples:
+        by_step.setdefault(sample.step_index, []).append(sample)
+
+    stats: list[StepStats] = []
+    for step_index in sorted(by_step):
+        group = by_step[step_index]
+        volts = [s.voltage_measured for s in group]
+        amps = [s.current_measured for s in group]
+        stats.append(
+            StepStats(
+                step_index=step_index,
+                sample_count=len(group),
+                voltage_mean=statistics.fmean(volts),
+                voltage_std=statistics.pstdev(volts) if len(volts) > 1 else 0.0,
+                voltage_min=min(volts),
+                voltage_max=max(volts),
+                current_mean=statistics.fmean(amps),
+                current_std=statistics.pstdev(amps) if len(amps) > 1 else 0.0,
+                current_min=min(amps),
+                current_max=max(amps),
+                voltage_out_of_range=sum(
+                    1
+                    for v in volts
+                    if (v_min_ref is not None and v < v_min_ref)
+                    or (v_max_ref is not None and v > v_max_ref)
+                ),
+                current_over_limit=sum(
+                    1 for a in amps if i_max_ref is not None and a > i_max_ref
+                ),
+            )
+        )
+    return stats

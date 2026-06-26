@@ -7,6 +7,7 @@ calculado — apenas refletindo o que já foi gravado em `evaluations`.
 """
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from docx import Document
@@ -17,6 +18,7 @@ from docx.shared import Inches, Pt, RGBColor
 from docx.table import _Cell
 
 from config import BrandingConfig
+from reports.chart import render_samples_chart
 from reports.report_data import ReportData
 from reports.template_engine import (
     build_context,
@@ -25,6 +27,7 @@ from reports.template_engine import (
     render_fields,
     resolve_output_path,
     result_color_hex,
+    step_stats_rows,
 )
 
 
@@ -110,24 +113,38 @@ def generate_word_report(
         if idx == 0 and color:
             _shade_cell(row.cells[1], color)
 
-    samples_section = template["sections"]["samples_table"]
-    _add_heading(doc, samples_section["heading"], branding)
-    sampled = evenly_sampled(data.samples, samples_section["max_rows"])
-    sample_rows = [
-        [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
-        for s in sampled
-    ]
-    _add_data_table(doc, samples_section["columns"], sample_rows, branding)
+    chart_png: Path | None = None
+    chart_section = template["sections"]["chart"]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        chart_png = render_samples_chart(data, branding, Path(tmp_dir) / "chart.png")
+        if chart_png is not None:
+            _add_heading(doc, chart_section["heading"], branding)
+            doc.add_picture(str(chart_png), width=Inches(6.2))
 
-    events_section = template["sections"]["events_table"]
-    _add_heading(doc, events_section["heading"], branding)
-    event_rows = [[e.timestamp or "", e.level, e.source, e.message] for e in data.events]
-    _add_data_table(doc, events_section["columns"], event_rows, branding)
+        stats_section = template["sections"]["step_stats_table"]
+        stats_rows = step_stats_rows(data)
+        if stats_rows:
+            _add_heading(doc, stats_section["heading"], branding)
+            _add_data_table(doc, stats_section["columns"], stats_rows, branding)
 
-    footer = doc.add_paragraph(template["footer"].format(**context))
-    footer.runs[0].font.size = Pt(8)
-    footer.runs[0].font.italic = True
+        samples_section = template["sections"]["samples_table"]
+        _add_heading(doc, samples_section["heading"], branding)
+        sampled = evenly_sampled(data.samples, samples_section["max_rows"])
+        sample_rows = [
+            [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
+            for s in sampled
+        ]
+        _add_data_table(doc, samples_section["columns"], sample_rows, branding)
 
-    output_path = resolve_output_path(data, output_dir, "docx", base_name)
-    doc.save(output_path)
+        events_section = template["sections"]["events_table"]
+        _add_heading(doc, events_section["heading"], branding)
+        event_rows = [[e.timestamp or "", e.level, e.source, e.message] for e in data.events]
+        _add_data_table(doc, events_section["columns"], event_rows, branding)
+
+        footer = doc.add_paragraph(template["footer"].format(**context))
+        footer.runs[0].font.size = Pt(8)
+        footer.runs[0].font.italic = True
+
+        output_path = resolve_output_path(data, output_dir, "docx", base_name)
+        doc.save(output_path)
     return output_path
