@@ -88,6 +88,15 @@ class LiveChart(QtWidgets.QWidget):
         self._axis_current.setLabelFormat("%.3f")
         self._axis_x.setLabelFormat("%.0f")
 
+        # Cada eixo Y na cor da sua linha: deixa inequívoco que a linha laranja
+        # se lê na escala da ESQUERDA (tensão) e a verde na DIREITA (corrente).
+        # Sem isso, a corrente (eixo 0–1,2) parecia ~5 quando lida contra o
+        # eixo da tensão — o "valor a mais" relatado.
+        self._axis_voltage.setLabelsColor(QtGui.QColor(self._COLOR_VOLTAGE))
+        self._axis_voltage.setTitleBrush(QtGui.QBrush(QtGui.QColor(self._COLOR_VOLTAGE)))
+        self._axis_current.setLabelsColor(QtGui.QColor(self._COLOR_CURRENT))
+        self._axis_current.setTitleBrush(QtGui.QBrush(QtGui.QColor(self._COLOR_CURRENT)))
+
         self._chart.addAxis(self._axis_x, QtCore.Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self._axis_voltage, QtCore.Qt.AlignmentFlag.AlignLeft)
         self._chart.addAxis(self._axis_current, QtCore.Qt.AlignmentFlag.AlignRight)
