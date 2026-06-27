@@ -274,6 +274,30 @@ def test_segment_display_alarm_toggles_out_of_range(qtbot) -> None:
     assert display.property("alarm") is False
 
 
+def test_registration_operator_field_is_comfortably_wide(qtbot, tmp_path: Path) -> None:
+    from database.repositories import BoardRepository, OperatorRepository
+    from gui.registration_view import RegistrationView
+
+    db = Database(tmp_path / "op_width.db")
+    db.connect()
+    view = RegistrationView(OperatorRepository(db), BoardRepository(db))
+    qtbot.addWidget(view)
+
+    assert view.operator_combo.minimumWidth() >= 320
+    db.close()
+
+
+def test_live_chart_axes_are_color_coded(qtbot) -> None:
+    from gui.widgets.live_chart import LiveChart
+
+    chart = LiveChart()
+    qtbot.addWidget(chart)
+
+    # Eixo da tensão na cor da linha de tensão; corrente idem — sem ambiguidade.
+    assert chart._axis_voltage.labelsColor().name().upper() == LiveChart._COLOR_VOLTAGE.upper()
+    assert chart._axis_current.labelsColor().name().upper() == LiveChart._COLOR_CURRENT.upper()
+
+
 def test_show_toast_creates_non_blocking_widget(qtbot) -> None:
     from PySide6 import QtWidgets
 

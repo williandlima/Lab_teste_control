@@ -56,7 +56,14 @@ class RegistrationView(QtWidgets.QWidget):
         self.operator_combo.setEditable(True)
         self.operator_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
         self.operator_combo.currentTextChanged.connect(self._on_operator_changed)
+        # Campo confortável para digitar o nome (era estreito demais).
+        self.operator_combo.setMinimumWidth(360)
+        self.operator_combo.setMinimumHeight(30)
+        self.operator_combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
+        )
         self.if_edit = QtWidgets.QLineEdit()
+        self.if_edit.setMinimumHeight(30)
 
         operator_form.addRow("Operador:", self.operator_combo)
         operator_form.addRow("IF:", self.if_edit)
