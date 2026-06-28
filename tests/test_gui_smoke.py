@@ -193,6 +193,26 @@ def test_parameters_view_back_button_emits_signal(qtbot, app_config, tmp_path: P
     db.close()
 
 
+def test_live_samples_uses_rolling_window(qtbot, app_config, tmp_path: Path) -> None:
+    """O gráfico ao vivo usa janela rolante (memória limitada em ensaios longos)."""
+    from collections import deque
+
+    from core.sampling_buffer import Sample
+    from gui.main_window import MainWindow
+
+    db = Database(tmp_path / "rolling.db")
+    db.connect()
+    window = MainWindow(app_config, db)
+    qtbot.addWidget(window)
+
+    window._live_samples = deque(maxlen=5)
+    for i in range(20):
+        window._on_sample(Sample(timestamp=float(i), step_index=0, voltage=5.0, current=0.5))
+
+    assert len(window._live_samples) == 5  # só os 5 mais recentes ficam em memória
+    db.close()
+
+
 def test_parameters_duration_unit_conversion(qtbot, app_config, tmp_path: Path) -> None:
     from dataclasses import asdict
     from database.repositories import TestParameterConfigRepository
