@@ -69,6 +69,42 @@ def test_happy_path_completes_and_shuts_down_output() -> None:
     assert not any(level == "ERROR" for level, _ in events)
 
 
+def test_capture_interval_records_fewer_than_displayed() -> None:
+    """Display em alta frequência, gravação throttled (evita overdata)."""
+    instrument = _make_mock_instrument()
+    flushed_batches: list = []
+    buffer = SamplingBuffer(
+        live_buffer_maxlen=100000, batch_size=100000, batch_interval_s=999,
+        on_flush=flushed_batches.append,
+    )
+    displayed: list = []
+    config = _make_config(test_duration_s=0.3, polling_rate_hz=100.0, capture_interval_s=0.1)
+    sm = TestStateMachine(instrument, buffer, config, on_sample=lambda s: displayed.append(s))
+
+    result = sm.run()
+
+    captured = flushed_batches[0] if flushed_batches else []
+    assert result == TestState.COMPLETED
+    assert len(captured) >= 1
+    assert len(displayed) > len(captured)  # monitorou muito mais do que gravou
+
+
+def test_capture_interval_zero_records_every_sample() -> None:
+    instrument = _make_mock_instrument()
+    flushed_batches: list = []
+    buffer = SamplingBuffer(
+        live_buffer_maxlen=100000, batch_size=100000, batch_interval_s=999,
+        on_flush=flushed_batches.append,
+    )
+    displayed: list = []
+    config = _make_config(test_duration_s=0.2, polling_rate_hz=100.0, capture_interval_s=0.0)
+    sm = TestStateMachine(instrument, buffer, config, on_sample=lambda s: displayed.append(s))
+
+    sm.run()
+
+    assert len(flushed_batches[0]) == len(displayed)  # grava todas quando intervalo=0
+
+
 def test_initialize_failure_leads_to_comm_error_and_still_shuts_down() -> None:
     instrument = _make_mock_instrument()
     instrument.connect.side_effect = SerialTimeoutError("sem resposta")
