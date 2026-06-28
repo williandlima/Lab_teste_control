@@ -57,6 +57,7 @@ test_defaults:
   sample_batch_size: 20
   sample_batch_interval_s: 5.0
   live_buffer_maxlen: 3600   # ~1h de pontos a 1Hz
+  capture_interval_s: 1.0    # grava 1 amostra/s no relatório (display continua em tempo real); 0 = grava todas
 
 logging:
   level: "INFO"

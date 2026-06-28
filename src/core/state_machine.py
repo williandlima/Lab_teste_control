@@ -74,6 +74,9 @@ class TestRunConfig:
     stabilization_timeout_s: float
     stabilization_tolerance_v: float
     monitoring_consecutive_failures_limit: int
+    # Intervalo entre capturas GRAVADAS (s). 0 = grava toda leitura. Distinto da
+    # taxa de polling (display): evita overdata no relatório em ensaios longos.
+    capture_interval_s: float = 0.0
 
     def steps(self) -> list[PowerStep]:
         """Sequência efetiva: usa power_sequence se houver, senão 1 passo único."""
@@ -244,6 +247,9 @@ class TestStateMachine:
         enfileirado, para não disparar -521 Input buffer overflow na fonte."""
         consecutive_failures = 0
         poll_interval = 1.0 / self._config.polling_rate_hz
+        capture_interval = self._config.capture_interval_s
+        last_capture_monotonic: float | None = None
+        last_capture_step: int | None = None
 
         for step_index, step in enumerate(self._config.steps()):
             if step_index > 0:
@@ -281,13 +287,37 @@ class TestStateMachine:
                     voltage=voltage,
                     current=current,
                 )
-                self._buffer.add_sample(sample)
+                # Display SEMPRE em tempo real; gravação só na taxa de captura
+                # (evita overdata). Garante a 1ª amostra de cada ciclo gravada.
                 self._on_sample(sample)
+                if self._should_capture(loop_start, step_index, last_capture_monotonic, last_capture_step):
+                    self._buffer.add_sample(sample)
+                    last_capture_monotonic = loop_start
+                    last_capture_step = step_index
 
                 elapsed = time.monotonic() - loop_start
                 time.sleep(max(0.0, poll_interval - elapsed))
 
         return "completed"
+
+    def _should_capture(
+        self,
+        now_monotonic: float,
+        step_index: int,
+        last_capture_monotonic: float | None,
+        last_capture_step: int | None,
+    ) -> bool:
+        """Decide se a amostra atual deve ser GRAVADA (não só exibida).
+
+        Grava se: captura está desativada (intervalo <= 0, grava todas), é a
+        primeira amostra, mudou de ciclo (garante 1 ponto por passo), ou já
+        passou o intervalo de captura desde a última gravação.
+        """
+        if self._config.capture_interval_s <= 0:
+            return True
+        if last_capture_monotonic is None or step_index != last_capture_step:
+            return True
+        return (now_monotonic - last_capture_monotonic) >= self._config.capture_interval_s
 
     def _finish(self, termination_reason: TestState) -> TestState:
         self._termination_reason = termination_reason

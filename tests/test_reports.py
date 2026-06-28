@@ -241,6 +241,17 @@ def test_traceability_calibration_frozen_in_snapshot(populated_session_id, brand
     assert context["app_version"] == "0.1.0"
 
 
+def test_format_duration_human() -> None:
+    from reports.template_engine import format_duration
+
+    assert format_duration(45) == "45 s"
+    assert format_duration(90) == "1 min 30 s"
+    assert format_duration(300) == "5 min"
+    assert format_duration(3600) == "1 h"
+    assert format_duration(5400) == "1 h 30 min"
+    assert format_duration(None) == "—"
+
+
 def test_render_samples_chart_creates_png(populated_session_id, branding, tmp_path: Path) -> None:
     from reports.chart import render_samples_chart
 

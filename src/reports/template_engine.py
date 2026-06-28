@@ -34,6 +34,20 @@ def _fmt(value: float | None, decimals: int = 3) -> str:
     return f"{value:.{decimals}f}" if value is not None else "—"
 
 
+def format_duration(seconds: float | None) -> str:
+    """Segundos -> texto legível (ex.: '90 s', '5 min', '1 h 30 min', '2 h')."""
+    if seconds is None:
+        return "—"
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total} s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes} min" + (f" {secs} s" if secs else "")
+    hours, mins = divmod(minutes, 60)
+    return f"{hours} h" + (f" {mins} min" if mins else "")
+
+
 def build_context(data: ReportData, branding: BrandingConfig) -> dict[str, str]:
     """Monta o dicionário usado pelos placeholders `{campo}` do template."""
     config = data.config_snapshot
@@ -55,6 +69,7 @@ def build_context(data: ReportData, branding: BrandingConfig) -> dict[str, str]:
         "voltage_max": _fmt(config.get("voltage_max")),
         "current_max": _fmt(config.get("current_max")),
         "test_duration_s": _fmt(config.get("test_duration_s"), decimals=1),
+        "test_duration_human": format_duration(config.get("test_duration_s")),
         "session_status": data.session.status.value,
         "instrument_identity": data.session.instrument_identity or "—",
         "instrument_model": config.get("instrument_model") or "—",

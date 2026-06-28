@@ -193,6 +193,27 @@ def test_parameters_view_back_button_emits_signal(qtbot, app_config, tmp_path: P
     db.close()
 
 
+def test_parameters_duration_unit_conversion(qtbot, app_config, tmp_path: Path) -> None:
+    from dataclasses import asdict
+    from database.repositories import TestParameterConfigRepository
+    from gui.test_parameters_view import TestParametersView
+
+    db = Database(tmp_path / "units.db")
+    db.connect()
+    view = TestParametersView(TestParameterConfigRepository(db), asdict(app_config.test_defaults))
+    qtbot.addWidget(view)
+
+    # Padrão: minutos (1 min = 60 s).
+    assert view._duration_factor == 60.0
+    view.test_duration_spin.setValue(2.0)  # 2 minutos
+
+    # Troca para horas: o valor exibido converte mantendo os segundos (120 s).
+    view.duration_unit_combo.setCurrentIndex(2)  # horas
+    assert view._duration_factor == 3600.0
+    assert view.test_duration_spin.value() == pytest.approx(2.0 / 60.0, abs=1e-3)
+    db.close()
+
+
 def test_monitoring_panel_cycle_label_tracks_step_index(qtbot) -> None:
     from core.sampling_buffer import Sample
     from gui.main_window import _MonitoringPanel

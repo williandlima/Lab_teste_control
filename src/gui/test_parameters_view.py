@@ -65,15 +65,30 @@ class TestParametersView(QtWidgets.QWidget):
         self.voltage_min_spin = self._make_double_spin(0.0, 50.0, 2, " V")
         self.voltage_max_spin = self._make_double_spin(0.0, 50.0, 2, " V")
         self.current_max_spin = self._make_double_spin(0.0, 20.0, 3, " A")
-        self.test_duration_spin = self._make_double_spin(0.0, 86400.0, 1, " s")
-        self.test_duration_spin.setValue(60.0)
+
+        # Duração em segundos/minutos/horas (internamente sempre convertida p/ s).
+        # 3 casas: preserva precisão ao alternar a unidade (ex.: 2 min = 0,033 h).
+        self.test_duration_spin = self._make_double_spin(0.0, 100000.0, 3, "")
+        self.duration_unit_combo = QtWidgets.QComboBox()
+        for label, factor in (("segundos", 1.0), ("minutos", 60.0), ("horas", 3600.0)):
+            self.duration_unit_combo.addItem(label, userData=factor)
+        self.duration_unit_combo.setCurrentIndex(1)  # minutos por padrão
+        self._duration_factor = 60.0
+        self.test_duration_spin.setValue(1.0)  # 1 min = 60 s (default equivalente ao antigo)
+        self.duration_unit_combo.currentIndexChanged.connect(self._on_duration_unit_changed)
+
+        duration_row = QtWidgets.QWidget()
+        duration_row_layout = QtWidgets.QHBoxLayout(duration_row)
+        duration_row_layout.setContentsMargins(0, 0, 0, 0)
+        duration_row_layout.addWidget(self.test_duration_spin, stretch=1)
+        duration_row_layout.addWidget(self.duration_unit_combo)
 
         limits_form.addRow("Nome da configuração:", self.config_name_edit)
         limits_form.addRow("Tensão nominal:", self.nominal_voltage_spin)
         limits_form.addRow("Tensão mínima (referência):", self.voltage_min_spin)
         limits_form.addRow("Tensão máxima (referência):", self.voltage_max_spin)
         limits_form.addRow("Corrente máxima:", self.current_max_spin)
-        limits_form.addRow("Duração do teste (passo único):", self.test_duration_spin)
+        limits_form.addRow("Duração do teste (passo único):", duration_row)
         form_layout.addWidget(limits_group)
 
         advanced_group = QtWidgets.QGroupBox("Parâmetros avançados de monitoramento")
@@ -87,8 +102,13 @@ class TestParametersView(QtWidgets.QWidget):
         self.consecutive_failures_spin = QtWidgets.QSpinBox()
         self.consecutive_failures_spin.setRange(1, 100)
         self.consecutive_failures_spin.setValue(self._test_defaults["monitoring_consecutive_failures_limit"])
+        # Intervalo de captura (gravação no relatório), distinto da taxa de
+        # monitoramento ao vivo — evita overdata em ensaios longos. 0 = grava todas.
+        self.capture_interval_spin = self._make_double_spin(0.0, 3600.0, 2, " s")
+        self.capture_interval_spin.setValue(self._test_defaults.get("capture_interval_s", 1.0))
 
-        advanced_form.addRow("Taxa de amostragem:", self.polling_rate_spin)
+        advanced_form.addRow("Taxa de amostragem (display):", self.polling_rate_spin)
+        advanced_form.addRow("Intervalo de captura (gravação):", self.capture_interval_spin)
         advanced_form.addRow("Timeout de estabilização:", self.stabilization_timeout_spin)
         advanced_form.addRow("Tolerância de estabilização:", self.stabilization_tolerance_spin)
         advanced_form.addRow("Falhas consecutivas até erro de comunicação:", self.consecutive_failures_spin)
@@ -125,6 +145,36 @@ class TestParametersView(QtWidgets.QWidget):
         form_layout.addLayout(actions_row)
         form_layout.addStretch()
 
+        self._refresh_duration_unit()
+
+    # -- unidade de tempo (s/min/h) -----------------------------------------
+
+    def _unit_suffix(self) -> str:
+        return {1.0: "s", 60.0: "min", 3600.0: "h"}[self._duration_factor]
+
+    def _refresh_duration_unit(self) -> None:
+        """Atualiza sufixo do spin e o cabeçalho da coluna de duração da tabela."""
+        suffix = self._unit_suffix()
+        self.test_duration_spin.setSuffix(f" {suffix}")
+        headers = list(self._COLUMN_LABELS[:2]) + [f"Duração ({suffix})"]
+        self.sequence_table.setHorizontalHeaderLabels(headers)
+
+    def _on_duration_unit_changed(self) -> None:
+        """Converte os valores exibidos para a nova unidade, mantendo os segundos."""
+        new_factor = self.duration_unit_combo.currentData()
+        ratio = self._duration_factor / new_factor
+        self.test_duration_spin.setValue(self.test_duration_spin.value() * ratio)
+        for row in range(self.sequence_table.rowCount()):
+            item = self.sequence_table.item(row, 2)
+            if item is None:
+                continue
+            try:
+                item.setText(str(round(float(item.text()) * ratio, 4)))
+            except ValueError:
+                pass  # célula em edição/ inválida: deixa como está
+        self._duration_factor = new_factor
+        self._refresh_duration_unit()
+
     @staticmethod
     def _make_double_spin(minimum: float, maximum: float, decimals: int, suffix: str) -> QtWidgets.QDoubleSpinBox:
         spin = QtWidgets.QDoubleSpinBox()
@@ -154,10 +204,12 @@ class TestParametersView(QtWidgets.QWidget):
         self.voltage_min_spin.setValue(config.voltage_min)
         self.voltage_max_spin.setValue(config.voltage_max)
         self.current_max_spin.setValue(config.current_max)
-        self.test_duration_spin.setValue(config.test_duration_s)
+        # Config guarda segundos; converte para a unidade exibida no momento.
+        factor = self._duration_factor
+        self.test_duration_spin.setValue(config.test_duration_s / factor)
         self.sequence_table.setRowCount(0)
         for step in config.power_sequence:
-            self._append_step_row(step.voltage, step.current, step.duration_s)
+            self._append_step_row(step.voltage, step.current, step.duration_s / factor)
 
     def _on_add_step(self) -> None:
         self._append_step_row(
@@ -166,10 +218,11 @@ class TestParametersView(QtWidgets.QWidget):
             self.test_duration_spin.value(),
         )
 
-    def _append_step_row(self, voltage: float, current: float, duration_s: float) -> None:
+    def _append_step_row(self, voltage: float, current: float, duration: float) -> None:
+        """`duration` está na unidade exibida (s/min/h); virou segundos só na leitura."""
         row = self.sequence_table.rowCount()
         self.sequence_table.insertRow(row)
-        for column, value in enumerate((voltage, current, duration_s)):
+        for column, value in enumerate((voltage, current, duration)):
             self.sequence_table.setItem(row, column, QtWidgets.QTableWidgetItem(str(value)))
 
     def _on_remove_step(self) -> None:
@@ -178,18 +231,20 @@ class TestParametersView(QtWidgets.QWidget):
             self.sequence_table.removeRow(row)
 
     def _read_power_sequence(self) -> list[PowerStep] | None:
+        factor = self._duration_factor
         steps: list[PowerStep] = []
         for row in range(self.sequence_table.rowCount()):
             try:
                 voltage = float(self.sequence_table.item(row, 0).text())
                 current = float(self.sequence_table.item(row, 1).text())
-                duration_s = float(self.sequence_table.item(row, 2).text())
+                duration = float(self.sequence_table.item(row, 2).text())
             except (AttributeError, ValueError):
                 QtWidgets.QMessageBox.warning(
                     self, "Sequência inválida", f"Linha {row + 1} da sequência tem valor inválido."
                 )
                 return None
-            steps.append(PowerStep(voltage=voltage, current=current, duration_s=duration_s))
+            # Tabela em s/min/h -> PowerStep sempre em segundos.
+            steps.append(PowerStep(voltage=voltage, current=current, duration_s=duration * factor))
         return steps
 
     def _on_submit(self) -> None:
@@ -220,7 +275,7 @@ class TestParametersView(QtWidgets.QWidget):
             voltage_min=self.voltage_min_spin.value(),
             voltage_max=self.voltage_max_spin.value(),
             current_max=self.current_max_spin.value(),
-            test_duration_s=self.test_duration_spin.value(),
+            test_duration_s=self.test_duration_spin.value() * self._duration_factor,
             power_sequence=power_sequence,
         )
         saved_config = self._config_repo.save(config)
@@ -237,6 +292,7 @@ class TestParametersView(QtWidgets.QWidget):
             stabilization_timeout_s=self.stabilization_timeout_spin.value(),
             stabilization_tolerance_v=self.stabilization_tolerance_spin.value(),
             monitoring_consecutive_failures_limit=self.consecutive_failures_spin.value(),
+            capture_interval_s=self.capture_interval_spin.value(),
         )
 
         self.parameters_submitted.emit(

@@ -65,6 +65,10 @@ class TestDefaultsConfig:
     sample_batch_size: int
     sample_batch_interval_s: float
     live_buffer_maxlen: int
+    # Intervalo entre CAPTURAS gravadas (relatório/banco), distinto da taxa de
+    # monitoramento ao vivo. Evita "overdata" em ensaios longos: a tela mostra
+    # cada leitura, mas só uma a cada N segundos é persistida. 0 = grava todas.
+    capture_interval_s: float = 1.0
 
 
 @dataclass(frozen=True)
