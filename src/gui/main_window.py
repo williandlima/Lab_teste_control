@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+from collections import deque
 from dataclasses import asdict
 from pathlib import Path
 
@@ -246,7 +247,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._state_machine: TestStateMachine | None = None
         self._worker: TestRunWorker | None = None
         self._probe_worker: ConnectionProbeWorker | None = None
-        self._live_samples: list[Sample] = []
+        # Janela rolante: limita a memória do gráfico ao vivo em ensaios longos.
+        # O relatório usa as amostras GRAVADAS no banco, não esta lista.
+        self._live_samples: deque[Sample] = deque(
+            maxlen=app_config.test_defaults.live_buffer_maxlen
+        )
         self._last_log_text = ""
 
         self.setWindowTitle(f"{app_config.branding.company_name} — FCT")
@@ -349,7 +354,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         )
         self._session = session
-        self._live_samples = []
+        self._live_samples = deque(maxlen=self._app_config.test_defaults.live_buffer_maxlen)
 
         buffer = SamplingBuffer(
             live_buffer_maxlen=self._app_config.test_defaults.live_buffer_maxlen,
@@ -408,9 +413,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _on_sample(self, sample: Sample) -> None:
-        self._live_samples.append(sample)
+        self._live_samples.append(sample)  # deque limitado: descarta os mais antigos
         self.monitoring_panel.on_sample(sample)
-        decimated = SamplingBuffer.decimate(self._live_samples, max_points=500)
+        decimated = SamplingBuffer.decimate(list(self._live_samples), max_points=500)
         self.monitoring_panel.live_chart.update_samples(decimated)
 
     def _on_event(self, level: str, message: str) -> None:
