@@ -133,6 +133,24 @@ def test_configure_source_failure_leads_to_faulted_with_failsafe_shutdown() -> N
     instrument.output_on.assert_not_called()
 
 
+def test_stabilization_timeout_proceeds_to_monitoring_not_faulted() -> None:
+    """Não estabilizar não aborta: segue monitorando para o operador ver as leituras."""
+    instrument = _make_mock_instrument()
+    instrument.measure_voltage.return_value = 5.0  # nunca atinge o alvo (12.0)
+    flushed_batches: list = []
+    buffer = _make_buffer(flushed_batches)
+    events: list[tuple[str, str]] = []
+    config = _make_config(stabilization_timeout_s=0.1, test_duration_s=0.1, polling_rate_hz=100.0)
+    sm = TestStateMachine(instrument, buffer, config, on_event=lambda lvl, msg: events.append((lvl, msg)))
+
+    result = sm.run()
+
+    assert result == TestState.COMPLETED
+    assert any(lvl == "WARNING" and "estabiliz" in msg.lower() for lvl, msg in events)
+    assert len(flushed_batches[0]) > 0  # houve leituras registradas no monitoramento
+    instrument.output_off.assert_called_once()
+
+
 def test_apply_voltage_failure_has_no_retry() -> None:
     instrument = _make_mock_instrument()
     instrument.apply.side_effect = SerialTimeoutError("falha ao aplicar")
