@@ -253,6 +253,8 @@ class MainWindow(QtWidgets.QMainWindow):
             maxlen=app_config.test_defaults.live_buffer_maxlen
         )
         self._last_log_text = ""
+        # Última mensagem de erro/aviso do ensaio, para diagnóstico ao terminar.
+        self._last_error_message: str | None = None
 
         self.setWindowTitle(f"{app_config.branding.company_name} — FCT")
         self.setStyleSheet(load_theme(app_config.branding))
@@ -354,6 +356,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         )
         self._session = session
+        self._last_error_message = None
         self._live_samples = deque(maxlen=self._app_config.test_defaults.live_buffer_maxlen)
 
         buffer = SamplingBuffer(
@@ -419,6 +422,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.monitoring_panel.live_chart.update_samples(decimated)
 
     def _on_event(self, level: str, message: str) -> None:
+        if level in ("ERROR", "WARNING"):
+            self._last_error_message = message
         self.monitoring_panel.append_event(level, message)
         self._event_repo.add(
             EventLogEntry(
@@ -451,6 +456,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # sem amostras — isso é o que fazia a tela "abrir e já encerrar". Em vez
         # disso, avisa o operador com uma mensagem acionável e volta aos
         # parâmetros para nova tentativa (a placa/operador continuam carregados).
+        detail = f"\n\nÚltimo erro registrado:\n{self._last_error_message}" if self._last_error_message else ""
+
         if status == TestSessionStatus.COMM_ERROR:
             self.header.set_connection_state(False, "Erro de comunicação durante o teste.")
             self._session = None
@@ -463,12 +470,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 "Verifique:\n"
                 "• a porta COM e o cabo/adaptador (use \"Testar conexão\");\n"
                 "• o baudrate/paridade iguais ao painel frontal da fonte;\n"
-                "• ou marque \"Simulação\" no cabeçalho para rodar sem hardware.",
+                "• ou marque \"Simulação\" no cabeçalho para rodar sem hardware."
+                + detail,
             )
             self.stack.setCurrentWidget(self.parameters_view)
             return
 
         samples = self._sample_repo.list_for_session(self._session.id)
+
+        # FAULTED = falhou durante a execução (config/aplicação/erro inesperado).
+        # Mostra o motivo antes de seguir — nunca terminar "em silêncio".
+        if status == TestSessionStatus.FAULTED:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Ensaio interrompido por falha",
+                f"O ensaio terminou em FALHA ({len(samples)} amostra(s) gravada(s))."
+                + (detail or "\n\nConsulte o log de eventos para detalhes."),
+            )
+
         self.evaluation_view.load_session(self._session, self._operator, self._state_machine, samples)
         self.stack.setCurrentWidget(self.evaluation_view)
 

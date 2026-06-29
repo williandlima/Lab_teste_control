@@ -152,10 +152,19 @@ class TestStateMachine:
             stabilize_result = self._stabilize()
             if stabilize_result == "comm_error":
                 return self._finish(TestState.COMM_ERROR)
-            if stabilize_result == "timeout":
-                return self._finish(TestState.FAULTED)
             if stabilize_result == "aborted":
                 return self._finish(TestState.ABORTED)
+            if stabilize_result == "timeout":
+                # Estabilização é uma cortesia de espera, NÃO um veredito: se a
+                # tensão não assenta na tolerância a tempo, seguimos para o
+                # monitoramento mesmo assim, para que o operador VEJA as leituras
+                # e decida manualmente. Abortar aqui deixava o gráfico vazio e a
+                # tela "abrindo e fechando" em hardware que estabiliza devagar.
+                self._on_event(
+                    "WARNING",
+                    "Tensão não estabilizou dentro da tolerância/tempo; prosseguindo "
+                    "para o monitoramento (avaliação é manual).",
+                )
 
             self._set_state(TestState.MONITORING)
             monitor_result = self._monitor()
