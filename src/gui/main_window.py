@@ -449,7 +449,18 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         # Rastreabilidade: grava a identidade (*IDN?) da fonte usada no ensaio.
         self._session_repo.set_instrument_identity(self._session.id, self._instrument.last_identity)
+
+        # Fecha a porta entre ensaios (libera a COM para outro app / próximo ensaio).
+        # Seguro aqui: o worker já terminou (este slot roda no 'finished'), então
+        # não há acesso concorrente à porta. disconnect() também reforça OUTPUT OFF.
+        try:
+            if self._instrument.is_connected:
+                self._instrument.disconnect()
+        except InstrumentCommunicationError as exc:
+            _logger.warning("Falha ao desconectar a fonte ao fim do ensaio: %s", exc)
+
         self.header.test_button.setEnabled(True)
+        self.header.set_connection_unknown("Porta fechada após o ensaio; reconfirme a conexão.")
 
         # COMM_ERROR = o teste NÃO chegou a comunicar com a fonte (falha já na
         # 1ª etapa). Não faz sentido ir para a avaliação manual com uma sessão
@@ -612,8 +623,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.app_log_edit.verticalScrollBar().setValue(self.app_log_edit.verticalScrollBar().maximum())
 
     def closeEvent(self, event: QtCore.QEvent) -> None:
+        # Aborta o ensaio ANTES de esperar: sem isso, num ensaio longo o wait
+        # estourava, a thread seguia medindo, e a GUI desconectava a porta em
+        # paralelo (acesso concorrente + saída podendo ficar ligada).
         if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(2000)
+            if self._state_machine is not None:
+                self._state_machine.request_abort()
+            self._worker.wait(5000)
         if self._probe_worker is not None and self._probe_worker.isRunning():
             self._probe_worker.wait(3000)
         if self._instrument.is_connected:

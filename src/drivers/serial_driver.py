@@ -127,6 +127,10 @@ class SerialTransport:
         linha que, fisicamente amarrada, sinaliza ao instrumento que o lado
         remoto está "presente" — sem isso a fonte trava esperando handshake.
         """
+        # Idempotente: fecha qualquer handle aberto antes de reabrir, evitando
+        # leak de descritor e "porta ocupada" ao reabrir a mesma COM.
+        if self._serial is not None and self._serial.is_open:
+            self.disconnect()
         if self._simulate:
             self._connect_simulated()
             return
@@ -176,6 +180,20 @@ class SerialTransport:
             self._serial.close()
             _serial_io_logger.debug("Porta serial fechada.")
         self._serial = None
+
+    def reset_io_buffers(self) -> None:
+        """Descarta buffers de entrada/saída para ressincronizar comando/resposta.
+
+        Usado após um timeout de leitura: a resposta atrasada do comando que
+        estourou o tempo pode chegar depois e ficar no buffer; sem limpar, a
+        próxima leitura pegaria essa resposta órfã (corrente lendo tensão, etc.).
+        """
+        if self._serial is not None and self._serial.is_open:
+            try:
+                self._serial.reset_input_buffer()
+                self._serial.reset_output_buffer()
+            except serial.SerialException as exc:
+                _serial_io_logger.warning("Falha ao limpar buffers serial: %s", exc)
 
     def write_line(self, command: str) -> None:
         """Envia um comando terminado em '\\n', conforme exigido pela E363x."""

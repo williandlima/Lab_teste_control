@@ -33,6 +33,10 @@ class Database:
         self._connection.execute("PRAGMA journal_mode=WAL;")
         self._connection.execute("PRAGMA foreign_keys=ON;")
         self._connection.execute("PRAGMA synchronous=NORMAL;")
+        # A conexão é compartilhada entre a thread da GUI (eventos/status) e a
+        # thread do worker (lote de amostras). Em WAL só há 1 escritor por vez;
+        # busy_timeout faz o segundo aguardar em vez de estourar "database is locked".
+        self._connection.execute("PRAGMA busy_timeout=5000;")
         self._apply_migrations()
 
     def close(self) -> None:

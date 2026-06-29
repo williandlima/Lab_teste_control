@@ -284,6 +284,9 @@ class TestStateMachine:
                         f"Falha de leitura ({consecutive_failures}/"
                         f"{self._config.monitoring_consecutive_failures_limit}): {exc}",
                     )
+                    # Ressincroniza: descarta resposta atrasada no buffer para a
+                    # próxima leitura não casar a resposta com o comando errado.
+                    self._instrument.reset_io_buffers()
                     if consecutive_failures >= self._config.monitoring_consecutive_failures_limit:
                         return "comm_error"
                     time.sleep(poll_interval)

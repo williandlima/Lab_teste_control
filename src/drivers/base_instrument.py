@@ -50,6 +50,10 @@ class BaseSerialInstrument(ABC):
         """Liga/desliga o modo simulação (fonte virtual) em tempo de execução."""
         self._transport.set_simulate(enabled)
 
+    def reset_io_buffers(self) -> None:
+        """Limpa buffers serial para ressincronizar após um timeout de leitura."""
+        self._transport.reset_io_buffers()
+
     def test_connection(self) -> str:
         """Abre a porta, sonda *IDN? e fecha — diagnóstico sem efeitos colaterais.
 

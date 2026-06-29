@@ -133,6 +133,19 @@ def test_configure_source_failure_leads_to_faulted_with_failsafe_shutdown() -> N
     instrument.output_on.assert_not_called()
 
 
+def test_monitor_resyncs_buffer_after_read_failure() -> None:
+    """Após falha de leitura, limpa o buffer para não casar resposta com comando errado."""
+    instrument = _make_mock_instrument()
+    instrument.measure_current.side_effect = [SerialTimeoutError("timeout")] + [1.0] * 1000
+    buffer = _make_buffer([])
+    config = _make_config(test_duration_s=0.05, polling_rate_hz=100.0)
+    sm = TestStateMachine(instrument, buffer, config)
+
+    sm.run()
+
+    assert instrument.reset_io_buffers.called
+
+
 def test_stabilization_timeout_proceeds_to_monitoring_not_faulted() -> None:
     """Não estabilizar não aborta: segue monitorando para o operador ver as leituras."""
     instrument = _make_mock_instrument()
