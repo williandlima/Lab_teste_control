@@ -63,6 +63,21 @@ def test_transport_runtime_simulate_override() -> None:
     transport.disconnect()
 
 
+def test_transport_connect_is_idempotent_and_buffers_resettable() -> None:
+    """Reconectar não vaza handle; reset_io_buffers é seguro aberto e fechado."""
+    from drivers.serial_driver import SerialTransport
+
+    transport = SerialTransport(_serial_config())  # simulate=True
+    transport.connect()
+    assert transport.is_open
+    transport.connect()  # idempotente: fecha o anterior e reabre, sem erro
+    assert transport.is_open
+
+    transport.reset_io_buffers()  # com porta aberta: ok
+    transport.disconnect()
+    transport.reset_io_buffers()  # com porta fechada: no-op, sem exceção
+
+
 def test_state_machine_completes_in_simulation_mode() -> None:
     instrument = PowerSupplyE363x(_serial_config(), ReconnectionConfig(
         max_retries=3, backoff_base_s=0.1, backoff_multiplier=2.0, heartbeat_interval_s=5.0
