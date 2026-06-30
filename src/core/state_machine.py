@@ -45,6 +45,7 @@ class TestState(str, Enum):
     APPLYING_VOLTAGE = "APPLYING_VOLTAGE"
     STABILIZING = "STABILIZING"
     MONITORING = "MONITORING"
+    PROTECTION_TRIPPED = "PROTECTION_TRIPPED"
     SHUTTING_DOWN_OUTPUT = "SHUTTING_DOWN_OUTPUT"
     AWAITING_MANUAL_EVALUATION = "AWAITING_MANUAL_EVALUATION"
     COMPLETED = "COMPLETED"
@@ -113,6 +114,8 @@ class TestStateMachine:
         self._abort_requested = threading.Event()
         self._state = TestState.IDLE
         self._termination_reason: TestState | None = None
+        self._protection_choice_event = threading.Event()
+        self._protection_restart: bool = False
 
     @property
     def state(self) -> TestState:
@@ -125,6 +128,12 @@ class TestStateMachine:
     def request_abort(self) -> None:
         """Thread-safe: chamado da GUI thread para cancelar um teste em curso."""
         self._abort_requested.set()
+
+    def set_protection_choice(self, restart: bool) -> None:
+        """Thread-safe: chamado da GUI thread após o operador escolher reiniciar
+        ou encerrar quando a proteção de hardware (OVP/OCP) disparou."""
+        self._protection_restart = restart
+        self._protection_choice_event.set()
 
     def _set_state(self, state: TestState) -> None:
         self._state = state
@@ -149,44 +158,64 @@ class TestStateMachine:
             if not self._check_communication():
                 return self._finish(TestState.COMM_ERROR)
 
-            self._set_state(TestState.CONFIGURING_SOURCE)
-            if not self._configure_source():
-                return self._finish(TestState.FAULTED)
+            # Loop de reinício após disparo de proteção (OVP/OCP): o operador
+            # pode escolher reiniciar sem perder a sessão e os dados já coletados.
+            while True:
+                self._set_state(TestState.CONFIGURING_SOURCE)
+                if not self._configure_source():
+                    return self._finish(TestState.FAULTED)
 
-            self._set_state(TestState.APPLYING_VOLTAGE)
-            if not self._apply_voltage():
-                return self._finish(TestState.FAULTED)
+                self._set_state(TestState.APPLYING_VOLTAGE)
+                if not self._apply_voltage():
+                    return self._finish(TestState.FAULTED)
 
-            self._set_state(TestState.STABILIZING)
-            stabilize_result = self._stabilize()
-            if stabilize_result == "comm_error":
-                return self._finish(TestState.COMM_ERROR)
-            if stabilize_result == "aborted":
-                return self._finish(TestState.ABORTED)
-            if stabilize_result == "timeout":
-                # Estabilização é uma cortesia de espera, NÃO um veredito: se a
-                # tensão não assenta na tolerância a tempo, seguimos para o
-                # monitoramento mesmo assim, para que o operador VEJA as leituras
-                # e decida manualmente. Abortar aqui deixava o gráfico vazio e a
-                # tela "abrindo e fechando" em hardware que estabiliza devagar.
-                self._on_event(
-                    "WARNING",
-                    "Tensão não estabilizou dentro da tolerância/tempo; prosseguindo "
-                    "para o monitoramento (avaliação é manual).",
-                )
+                self._set_state(TestState.STABILIZING)
+                stabilize_result = self._stabilize()
+                if stabilize_result == "comm_error":
+                    return self._finish(TestState.COMM_ERROR)
+                if stabilize_result == "aborted":
+                    return self._finish(TestState.ABORTED)
+                if stabilize_result == "timeout":
+                    # Estabilização é uma cortesia de espera, NÃO um veredito: se a
+                    # tensão não assenta na tolerância a tempo, seguimos para o
+                    # monitoramento mesmo assim, para que o operador VEJA as leituras
+                    # e decida manualmente. Abortar aqui deixava o gráfico vazio e a
+                    # tela "abrindo e fechando" em hardware que estabiliza devagar.
+                    self._on_event(
+                        "WARNING",
+                        "Tensão não estabilizou dentro da tolerância/tempo; prosseguindo "
+                        "para o monitoramento (avaliação é manual).",
+                    )
 
-            self._set_state(TestState.MONITORING)
-            monitor_result = self._monitor()
-            if monitor_result == "comm_error":
-                return self._finish(TestState.COMM_ERROR)
-            if monitor_result == "aborted":
-                return self._finish(TestState.ABORTED)
+                self._set_state(TestState.MONITORING)
+                monitor_result = self._monitor()
+                if monitor_result == "comm_error":
+                    return self._finish(TestState.COMM_ERROR)
+                if monitor_result == "aborted":
+                    return self._finish(TestState.ABORTED)
+                if monitor_result == "protection_tripped":
+                    self._set_state(TestState.PROTECTION_TRIPPED)
+                    restart = self._wait_for_protection_choice()
+                    if restart:
+                        self._on_event("INFO", "Operador optou por reiniciar o ensaio.")
+                        continue  # volta ao início do while: reconfigura e reaplica
+                    else:
+                        self._on_event("INFO", "Operador optou por encerrar o ensaio.")
+                        return self._finish(TestState.COMPLETED)
 
-            return self._finish(TestState.COMPLETED)
+                return self._finish(TestState.COMPLETED)
         except Exception as exc:
             self._on_event("ERROR", f"Falha inesperada na state machine: {exc}")
             _logger.exception("Falha inesperada na state machine")
             return self._finish(TestState.FAULTED)
+
+    def _wait_for_protection_choice(self, timeout_s: float = 600.0) -> bool:
+        """Bloqueia o worker até o operador escolher reiniciar (True) ou
+        encerrar (False). Timeout de 10 min → encerra automaticamente."""
+        self._protection_restart = False
+        self._protection_choice_event.clear()
+        self._protection_choice_event.wait(timeout=timeout_s)
+        return self._protection_restart
 
     def mark_evaluated(self) -> None:
         """Transição final, disparada quando o operador salva a avaliação manual."""
@@ -326,6 +355,35 @@ class TestStateMachine:
                     self._buffer.add_sample(sample)
                     last_capture_monotonic = loop_start
                     last_capture_step = step_index
+
+                # Detecção de disparo de OVP/OCP: só verifica quando a proteção
+                # está armada E a tensão medida cai abruptamente a menos de 10%
+                # do setpoint (com setpoint >= 2 V para evitar falso-positivo em
+                # passos de tensão intrinsecamente baixa). Só então faz 1-2
+                # queries extras ao instrumento, mantendo overhead zero no caso
+                # normal.
+                prot_armed = self._config.ovp_level_v > 0 or self._config.ocp_level_a > 0
+                if prot_armed and step.voltage >= 2.0 and voltage < 0.1 * step.voltage:
+                    try:
+                        ovp_tripped = (
+                            self._config.ovp_level_v > 0
+                            and self._instrument.is_overvoltage_protection_tripped()
+                        )
+                        ocp_tripped = (
+                            not ovp_tripped
+                            and self._config.ocp_level_a > 0
+                            and self._instrument.is_overcurrent_protection_tripped()
+                        )
+                        if ovp_tripped or ocp_tripped:
+                            prot_name = "OVP" if ovp_tripped else "OCP"
+                            self._on_event(
+                                "WARNING",
+                                f"Proteção de hardware disparou ({prot_name}) — "
+                                "saída desligada pelo instrumento.",
+                            )
+                            return "protection_tripped"
+                    except InstrumentCommunicationError:
+                        pass  # best-effort: não interrompe o ensaio por falha de leitura de status
 
                 elapsed = time.monotonic() - loop_start
                 time.sleep(max(0.0, poll_interval - elapsed))

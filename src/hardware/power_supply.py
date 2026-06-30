@@ -88,19 +88,37 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.check_error()
 
     def set_overvoltage_protection(self, level: float, enabled: bool = True) -> None:
+        # Desativa e limpa o latch ANTES de reconfigurar: sem isso, um latch
+        # residual de ensaio anterior re-dispara imediatamente ao reativar o
+        # STAT ON — mesmo com o nível correto (13 V) a proteção atuaria com
+        # a fonte em 12 V porque o hardware ainda registrava o trip anterior.
+        self.scpi.write("VOLTage:PROTection:STATe OFF")
+        self.scpi.write("VOLTage:PROTection:CLEar")
         self.scpi.write(f"VOLTage:PROTection:LEVel {level:.4f}")
         self.scpi.write(f"VOLTage:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()
 
     def clear_overvoltage_protection(self) -> None:
+        self.scpi.write("VOLTage:PROTection:STATe OFF")
         self.scpi.write("VOLTage:PROTection:CLEar")
         self.scpi.check_error()
 
+    def is_overvoltage_protection_tripped(self) -> bool:
+        response = self.scpi.query("VOLTage:PROTection:TRIPped?")
+        return response.strip() in ("1", "YES")
+
     def set_overcurrent_protection(self, level: float, enabled: bool = True) -> None:
+        self.scpi.write("CURRent:PROTection:STATe OFF")
+        self.scpi.write("CURRent:PROTection:CLEar")
         self.scpi.write(f"CURRent:PROTection:LEVel {level:.4f}")
         self.scpi.write(f"CURRent:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()
 
     def clear_overcurrent_protection(self) -> None:
+        self.scpi.write("CURRent:PROTection:STATe OFF")
         self.scpi.write("CURRent:PROTection:CLEar")
         self.scpi.check_error()
+
+    def is_overcurrent_protection_tripped(self) -> bool:
+        response = self.scpi.query("CURRent:PROTection:TRIPped?")
+        return response.strip() in ("1", "YES")
