@@ -77,11 +77,15 @@ class TestRunConfig:
     # Intervalo entre capturas GRAVADAS (s). 0 = grava toda leitura. Distinto da
     # taxa de polling (display): evita overdata no relatório em ensaios longos.
     capture_interval_s: float = 0.0
-    # Margem (%) acima de voltage_max/current_max usada para armar a proteção
-    # de hardware (OVP/OCP). Necessária porque voltage_max/current_max são os
-    # limites de avaliação/compliance, não o nível de disparo: sem margem, a
-    # fonte entra em OVP/OCP por overshoot/inrush normais durante a operação.
-    protection_margin_pct: float = 10.0
+    # Nível de disparo de OVP/OCP (V/A), definido diretamente pelo operador.
+    # 0 = não configura a proteção (a fonte mantém seu próprio default e ela
+    # não atua durante o ensaio). Calcular esse nível automaticamente a
+    # partir de voltage_max/current_max já causou dois problemas reais:
+    # disparo em overshoot/inrush normal, e SCPI -222 (Data out of range)
+    # quando a margem ultrapassava a faixa aceita pelo instrumento — por
+    # isso agora é o operador quem escolhe o valor exato.
+    ovp_level_v: float = 0.0
+    ocp_level_a: float = 0.0
 
     def steps(self) -> list[PowerStep]:
         """Sequência efetiva: usa power_sequence se houver, senão 1 passo único."""
@@ -213,21 +217,24 @@ class TestStateMachine:
         return False
 
     def _configure_source(self) -> bool:
-        """Arma OVP/OCP como proteção de hardware real (independente da regra de
-        não-avaliação automática: isto é uma camada de segurança do instrumento,
-        não um veredito de PASS/FAIL).
+        """Arma OVP/OCP somente se o operador definir um nível (> 0) nos
+        parâmetros do ensaio — proteção de hardware real, independente da
+        regra de não-avaliação automática (não é veredito de PASS/FAIL).
 
-        O nível de disparo fica acima de voltage_max/current_max por uma margem
-        (`protection_margin_pct`): esses dois são os limites de avaliação/
-        compliance, não o ponto de falha real. Armar a proteção exatamente
-        neles faz a fonte disparar OVP/OCP em overshoot ou inrush normais,
-        derrubando a saída sem motivo (o ensaio "trava" perto de zero).
+        Sem nível definido (0), nada é configurado aqui: a fonte mantém sua
+        própria proteção padrão e ela não atua durante o ensaio, como pedido
+        pelo operador. Calcular o nível automaticamente (versão anterior) já
+        causou disparo em overshoot/inrush normal e SCPI -222 (Data out of
+        range) quando o valor calculado ultrapassava a faixa do instrumento.
         """
-        margin = 1.0 + (self._config.protection_margin_pct / 100.0)
+        if self._config.ovp_level_v <= 0 and self._config.ocp_level_a <= 0:
+            return True
         for attempt in range(1, 3):
             try:
-                self._instrument.set_overvoltage_protection(self._config.voltage_max * margin)
-                self._instrument.set_overcurrent_protection(self._config.current_max * margin)
+                if self._config.ovp_level_v > 0:
+                    self._instrument.set_overvoltage_protection(self._config.ovp_level_v)
+                if self._config.ocp_level_a > 0:
+                    self._instrument.set_overcurrent_protection(self._config.ocp_level_a)
                 return True
             except InstrumentCommunicationError as exc:
                 self._on_event(

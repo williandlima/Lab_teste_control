@@ -124,7 +124,8 @@ def test_configure_source_failure_leads_to_faulted_with_failsafe_shutdown() -> N
     instrument = _make_mock_instrument()
     instrument.set_overvoltage_protection.side_effect = SerialTimeoutError("erro de protecao")
     buffer = _make_buffer([])
-    sm = TestStateMachine(instrument, buffer, _make_config())
+    config = _make_config(ovp_level_v=13.0)
+    sm = TestStateMachine(instrument, buffer, config)
 
     result = sm.run()
 
@@ -133,19 +134,34 @@ def test_configure_source_failure_leads_to_faulted_with_failsafe_shutdown() -> N
     instrument.output_on.assert_not_called()
 
 
-def test_configure_source_arms_protection_above_reference_limits() -> None:
-    """OVP/OCP devem ter margem acima de voltage_max/current_max — armar exatamente
-    no limite de compliance faz a fonte disparar a proteção em overshoot/inrush
-    normais, derrubando a saída sem motivo real."""
+def test_configure_source_skips_protection_by_default() -> None:
+    """ovp_level_v/ocp_level_a = 0 (default): não configura nada — a fonte mantém
+    sua própria proteção e ela não atua durante o ensaio (decisão do operador)."""
     instrument = _make_mock_instrument()
     buffer = _make_buffer([])
-    config = _make_config(voltage_max=12.5, current_max=2.0, protection_margin_pct=10.0)
+    config = _make_config()
+    sm = TestStateMachine(instrument, buffer, config)
+
+    result = sm.run()
+
+    assert result == TestState.COMPLETED
+    instrument.set_overvoltage_protection.assert_not_called()
+    instrument.set_overcurrent_protection.assert_not_called()
+
+
+def test_configure_source_arms_protection_at_operator_defined_levels() -> None:
+    """Quando o operador define OVP/OCP, a fonte é armada exatamente nesse valor
+    (sem cálculo automático — já causou disparo indevido e SCPI -222 Data out
+    of range quando a margem ultrapassava a faixa aceita pelo instrumento)."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    config = _make_config(ovp_level_v=13.5, ocp_level_a=2.2)
     sm = TestStateMachine(instrument, buffer, config)
 
     sm.run()
 
-    instrument.set_overvoltage_protection.assert_called_once_with(pytest.approx(13.75))
-    instrument.set_overcurrent_protection.assert_called_once_with(pytest.approx(2.2))
+    instrument.set_overvoltage_protection.assert_called_once_with(13.5)
+    instrument.set_overcurrent_protection.assert_called_once_with(2.2)
 
 
 def test_monitor_resyncs_buffer_after_read_failure() -> None:
