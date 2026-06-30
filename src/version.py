@@ -4,4 +4,4 @@ Mantida em sincronia manual com `version` em pyproject.toml.
 """
 from __future__ import annotations
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
