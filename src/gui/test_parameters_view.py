@@ -195,6 +195,15 @@ class TestParametersView(QtWidgets.QWidget):
     def set_board(self, board: Board) -> None:
         self._board = board
         self.board_label.setText(f"Placa: {board.code} (P/N {board.part_number}, rev. {board.revision})")
+        # Sem isto, a sequência multi-step de um ensaio ANTERIOR (ex.: outra
+        # placa, ou um teste já concluído) ficava na tabela e era aplicada
+        # silenciosamente neste novo ensaio — mesmo o operador preenchendo
+        # "Tensão nominal"/"Corrente máxima" com valores totalmente
+        # diferentes, já que TestRunConfig.steps() prioriza power_sequence
+        # quando não-vazio. A fonte real chegou a receber tensão/corrente
+        # de um ensaio antigo por causa disso. "Carregar" (histórico) ainda
+        # repopula a tabela explicitamente quando o operador pedir.
+        self.sequence_table.setRowCount(0)
         self.refresh_history()
 
     def refresh_history(self) -> None:
