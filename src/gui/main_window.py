@@ -264,6 +264,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._state_machine: TestStateMachine | None = None
         self._worker: TestRunWorker | None = None
         self._probe_worker: ConnectionProbeWorker | None = None
+        # Escolha do operador na confirmação de abortar (seção 3.3): mantém
+        # os dados para avaliação/relatório ou descarta a sessão abortada.
+        self._discard_aborted_session = False
         # Janela rolante: limita a memória do gráfico ao vivo em ensaios longos.
         # O relatório usa as amostras GRAVADAS no banco, não esta lista.
         self._live_samples: deque[Sample] = deque(
@@ -406,12 +409,18 @@ class MainWindow(QtWidgets.QMainWindow):
         # Modo simulação (fonte virtual) segue o botão do cabeçalho.
         self._instrument.set_simulate(self.header.simulation_enabled())
 
+        steps = run_config.steps()
+        # Em ciclos automáticos (power_sequence), a duração total exibida no
+        # gráfico é a soma de todos os passos — não só test_duration_s (que
+        # reflete apenas o passo único), senão o eixo X corta os ciclos
+        # seguintes mesmo com o cycle_label avançando corretamente.
+        total_duration_s = sum(step.duration_s for step in steps)
         self.monitoring_panel.reset(
             run_config.voltage_min,
             run_config.voltage_max,
-            run_config.test_duration_s,
+            total_duration_s,
             run_config.current_max,
-            total_steps=len(run_config.steps()),
+            total_steps=len(steps),
             protection_armed=run_config.ovp_level_v > 0 or run_config.ocp_level_a > 0,
         )
         self.header.test_button.setEnabled(False)  # sem sondar a porta durante o teste
@@ -455,8 +464,25 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _on_abort_requested(self) -> None:
-        if self._state_machine is not None:
-            self._state_machine.request_abort()
+        if self._state_machine is None:
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Question)
+        box.setWindowTitle("Abortar ensaio")
+        box.setText(
+            "O ensaio será interrompido agora.\n\n"
+            "Deseja manter os dados já coletados para avaliação e geração de relatório?"
+        )
+        keep_button = box.addButton("Manter dados e avaliar", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        discard_button = box.addButton("Descartar dados", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancelar", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep_button)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked not in (keep_button, discard_button):
+            return  # Cancelar: o ensaio continua rodando
+        self._discard_aborted_session = clicked is discard_button
+        self._state_machine.request_abort()
 
     def _on_worker_finished(self) -> None:
         assert self._state_machine is not None and self._session is not None
@@ -505,6 +531,25 @@ class MainWindow(QtWidgets.QMainWindow):
             self.stack.setCurrentWidget(self.parameters_view)
             return
 
+        # Abortado com "Descartar dados": o operador já decidiu na confirmação
+        # de abortar (seção 3.3) que não quer avaliar/gerar relatório desta
+        # sessão. Volta direto aos parâmetros, sem passar pela avaliação.
+        if status == TestSessionStatus.ABORTED and self._discard_aborted_session:
+            self._discard_aborted_session = False
+            discarded_count = len(self._sample_repo.list_for_session(self._session.id))
+            self._session = None
+            self._state_machine = None
+            self._worker = None
+            QtWidgets.QMessageBox.information(
+                self,
+                "Ensaio abortado",
+                f"O ensaio foi abortado. {discarded_count} amostra(s) coletada(s) foram descartadas "
+                "(sem avaliação nem relatório).",
+            )
+            self.stack.setCurrentWidget(self.parameters_view)
+            return
+
+        self._discard_aborted_session = False
         samples = self._sample_repo.list_for_session(self._session.id)
 
         # FAULTED = falhou durante a execução (config/aplicação/erro inesperado).

@@ -6,8 +6,13 @@ Cadastro→Parâmetros→Monitoramento→Avaliação e tem três salvaguardas:
 
 1. ``Ligar saída`` exige confirmação explícita (energizar uma placa fora da
    sequência controlada é o ponto de maior risco elétrico do app).
-2. OVP/OCP são armados antes de aplicar tensão, como proteção de hardware.
-3. A saída é SEMPRE desligada ao fechar o diálogo (failsafe), mesmo em erro.
+2. A saída é SEMPRE desligada ao fechar o diálogo (failsafe), mesmo em erro.
+
+OVP/OCP NÃO são armados automaticamente aqui: um cálculo de margem (ex.: 10%
+sobre o setpoint) já causou "SCPI error -222: Data out of range" em hardware
+real (mesma causa-raiz corrigida no fluxo principal — ver state_machine.py).
+Se o operador quiser proteção de hardware, deve armar OVP/OCP explicitamente
+pela própria fonte ou pelo fluxo de ensaio completo, que pede o valor.
 
 Todas as chamadas SCPI são bloqueantes e rodam fora da thread da GUI. O acesso
 ao instrumento é serializado: a leitura ao vivo (poller) só roda com a saída
@@ -172,9 +177,6 @@ class ManualOutputDialog(QtWidgets.QDialog):
             self._instrument.set_port(self._port)
             if not self._instrument.is_connected:
                 self._instrument.connect()
-            # OVP com folga de 10% sobre o setpoint; OCP no limite informado.
-            self._instrument.set_overvoltage_protection(voltage * 1.1)
-            self._instrument.set_overcurrent_protection(current)
             self._instrument.apply(voltage, current)
             self._instrument.output_on()
 
