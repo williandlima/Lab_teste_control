@@ -51,6 +51,18 @@ class ScpiProtocol:
         """*CLS — limpa registradores de status e a fila de erros."""
         self.write("*CLS")
 
+    def wait_complete(self) -> None:
+        """*OPC? — força round-trip síncrono antes do próximo comando.
+
+        Sem handshake DTR/DSR (cabo de 3 fios), a fonte não tem como sinalizar
+        "buffer cheio" ao PC: vários `write()` em sequência sem esperar
+        resposta podem ultrapassar o buffer de entrada de ~100 caracteres da
+        E363x e gerar erro -521 (input buffer overflow). Consultar `*OPC?`
+        entre comandos força o PC a aguardar a fonte processar o anterior
+        antes de enviar o próximo, sem depender de um atraso fixo arbitrário.
+        """
+        self.query("*OPC?")
+
     def self_test(self) -> bool:
         """*TST? — executa autoteste interno; True se passou (0)."""
         result = self.query("*TST?")

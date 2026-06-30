@@ -98,16 +98,24 @@ class PowerSupplyE363x(BaseSerialInstrument):
         # um novo nível enquanto OVP está ON com a saída ativa.
         # clear_latch=True somente quando OVP sabidamente disparou (restart após
         # trip): VOLT:PROT:CLEar é inválido em muitas firmwares se o latch não
-        # estava ativo, o que gera erro 521 e aborta a configuração.
+        # estava ativo.
+        # Cada write() é seguido de wait_complete() (*OPC?): sem isso, os 3-4
+        # comandos desta sequência somam ~100+ caracteres e estouram o buffer
+        # de entrada da E363x (erro 521 — ver ScpiInputBufferOverflowError),
+        # já que o cabo de 3 fios não tem handshake de hardware para conter o PC.
         self.scpi.write("VOLTage:PROTection:STATe OFF")
+        self.scpi.wait_complete()
         if clear_latch:
             self.scpi.write("VOLTage:PROTection:CLEar")
+            self.scpi.wait_complete()
         self.scpi.write(f"VOLTage:PROTection:LEVel {level:.4f}")
+        self.scpi.wait_complete()
         self.scpi.write(f"VOLTage:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()
 
     def clear_overvoltage_protection(self) -> None:
         self.scpi.write("VOLTage:PROTection:STATe OFF")
+        self.scpi.wait_complete()
         self.scpi.write("VOLTage:PROTection:CLEar")
         self.scpi.check_error()
 
@@ -118,15 +126,20 @@ class PowerSupplyE363x(BaseSerialInstrument):
     def set_overcurrent_protection(
         self, level: float, enabled: bool = True, clear_latch: bool = False
     ) -> None:
+        # Pacing via wait_complete() pelo mesmo motivo de set_overvoltage_protection.
         self.scpi.write("CURRent:PROTection:STATe OFF")
+        self.scpi.wait_complete()
         if clear_latch:
             self.scpi.write("CURRent:PROTection:CLEar")
+            self.scpi.wait_complete()
         self.scpi.write(f"CURRent:PROTection:LEVel {level:.4f}")
+        self.scpi.wait_complete()
         self.scpi.write(f"CURRent:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()
 
     def clear_overcurrent_protection(self) -> None:
         self.scpi.write("CURRent:PROTection:STATe OFF")
+        self.scpi.wait_complete()
         self.scpi.write("CURRent:PROTection:CLEar")
         self.scpi.check_error()
 
