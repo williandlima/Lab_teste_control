@@ -11,6 +11,9 @@ pythonpath = ["src"]
 # coletar TestState/TestSession/TestParameterConfig (nomes de domínio que
 # começam com "Test") como classes de teste e emite warnings falsos.
 python_classes = ["*NoClassBasedTests"]
+markers = [
+    "gui: testes que requerem display Qt (pular no CI headless com -m 'not gui')",
+]
 
 [tool.mypy]
 python_version = "3.10"

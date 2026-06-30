@@ -3,6 +3,9 @@
 Não dirige interação completa — apenas constrói a árvore de widgets (offscreen)
 para travar regressões de wiring (sinais/slots, import, logo, seletor de porta).
 Roda com QT_QPA_PLATFORM=offscreen, sem display real.
+
+Todos os testes deste módulo carregam o marker 'gui' (declarado em
+pyproject.toml). No CI headless rode: pytest -m 'not gui'.
 """
 from __future__ import annotations
 
@@ -14,6 +17,8 @@ from config import load_config
 from database.database import Database
 
 pytest.importorskip("PySide6")
+
+pytestmark = pytest.mark.gui
 
 
 @pytest.fixture()
