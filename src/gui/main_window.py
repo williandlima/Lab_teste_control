@@ -401,6 +401,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._worker = worker
 
         worker.state_changed.connect(self.monitoring_panel.on_state_changed)
+        worker.state_changed.connect(self._on_worker_state_changed)
         worker.sample_received.connect(self._on_sample)
         worker.event_logged.connect(self._on_event)
         worker.finished.connect(self._on_worker_finished)
@@ -485,6 +486,33 @@ class MainWindow(QtWidgets.QMainWindow):
             return  # Cancelar: o ensaio continua rodando
         self._discard_aborted_session = clicked is discard_button
         self._state_machine.request_abort()
+
+    def _on_worker_state_changed(self, state_value: str) -> None:
+        if state_value == TestState.PROTECTION_TRIPPED.value:
+            self._on_protection_tripped()
+
+    def _on_protection_tripped(self) -> None:
+        if self._state_machine is None:
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Proteção de hardware disparou")
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setText(
+            "A proteção de hardware (OVP ou OCP) foi acionada e a saída da fonte "
+            "foi desligada automaticamente.\n\n"
+            "Verifique se o nível de OVP/OCP configurado é adequado para a tensão/corrente "
+            "do ensaio e o que deseja fazer:"
+        )
+        restart_button = box.addButton(
+            "Reiniciar ensaio", QtWidgets.QMessageBox.ButtonRole.AcceptRole
+        )
+        end_button = box.addButton(
+            "Encerrar e avaliar dados", QtWidgets.QMessageBox.ButtonRole.DestructiveRole
+        )
+        box.setDefaultButton(restart_button)
+        box.exec()
+        restart = box.clickedButton() is restart_button
+        self._state_machine.set_protection_choice(restart)
 
     def _on_worker_finished(self) -> None:
         assert self._state_machine is not None and self._session is not None
