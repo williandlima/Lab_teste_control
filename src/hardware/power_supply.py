@@ -87,13 +87,21 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.write(f"APPLy {volts:.4f},{amps:.4f}")
         self.scpi.check_error()
 
-    def set_overvoltage_protection(self, level: float, enabled: bool = True) -> None:
-        # Desativa e limpa o latch ANTES de reconfigurar: sem isso, um latch
-        # residual de ensaio anterior re-dispara imediatamente ao reativar o
-        # STAT ON — mesmo com o nível correto (13 V) a proteção atuaria com
-        # a fonte em 12 V porque o hardware ainda registrava o trip anterior.
+    def clear_status(self) -> None:
+        """*CLS — limpa fila de erros e registradores de status."""
+        self.scpi.clear_status()
+
+    def set_overvoltage_protection(
+        self, level: float, enabled: bool = True, clear_latch: bool = False
+    ) -> None:
+        # Desativa antes de alterar o nível: sem isso o instrumento pode rejeitar
+        # um novo nível enquanto OVP está ON com a saída ativa.
+        # clear_latch=True somente quando OVP sabidamente disparou (restart após
+        # trip): VOLT:PROT:CLEar é inválido em muitas firmwares se o latch não
+        # estava ativo, o que gera erro 521 e aborta a configuração.
         self.scpi.write("VOLTage:PROTection:STATe OFF")
-        self.scpi.write("VOLTage:PROTection:CLEar")
+        if clear_latch:
+            self.scpi.write("VOLTage:PROTection:CLEar")
         self.scpi.write(f"VOLTage:PROTection:LEVel {level:.4f}")
         self.scpi.write(f"VOLTage:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()
@@ -107,9 +115,12 @@ class PowerSupplyE363x(BaseSerialInstrument):
         response = self.scpi.query("VOLTage:PROTection:TRIPped?")
         return response.strip() in ("1", "YES")
 
-    def set_overcurrent_protection(self, level: float, enabled: bool = True) -> None:
+    def set_overcurrent_protection(
+        self, level: float, enabled: bool = True, clear_latch: bool = False
+    ) -> None:
         self.scpi.write("CURRent:PROTection:STATe OFF")
-        self.scpi.write("CURRent:PROTection:CLEar")
+        if clear_latch:
+            self.scpi.write("CURRent:PROTection:CLEar")
         self.scpi.write(f"CURRent:PROTection:LEVel {level:.4f}")
         self.scpi.write(f"CURRent:PROTection:STATe {'ON' if enabled else 'OFF'}")
         self.scpi.check_error()

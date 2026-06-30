@@ -160,9 +160,10 @@ class TestStateMachine:
 
             # Loop de reinício após disparo de proteção (OVP/OCP): o operador
             # pode escolher reiniciar sem perder a sessão e os dados já coletados.
+            is_restart = False
             while True:
                 self._set_state(TestState.CONFIGURING_SOURCE)
-                if not self._configure_source():
+                if not self._configure_source(clear_protection_latch=is_restart):
                     return self._finish(TestState.FAULTED)
 
                 self._set_state(TestState.APPLYING_VOLTAGE)
@@ -198,6 +199,7 @@ class TestStateMachine:
                     restart = self._wait_for_protection_choice()
                     if restart:
                         self._on_event("INFO", "Operador optou por reiniciar o ensaio.")
+                        is_restart = True  # próxima iteração deve limpar o latch
                         continue  # volta ao início do while: reconfigura e reaplica
                     else:
                         self._on_event("INFO", "Operador optou por encerrar o ensaio.")
@@ -245,7 +247,7 @@ class TestStateMachine:
             time.sleep(1.0 * attempt)
         return False
 
-    def _configure_source(self) -> bool:
+    def _configure_source(self, clear_protection_latch: bool = False) -> bool:
         """Arma OVP/OCP somente se o operador definir um nível (> 0) nos
         parâmetros do ensaio — proteção de hardware real, independente da
         regra de não-avaliação automática (não é veredito de PASS/FAIL).
@@ -255,15 +257,30 @@ class TestStateMachine:
         pelo operador. Calcular o nível automaticamente (versão anterior) já
         causou disparo em overshoot/inrush normal e SCPI -222 (Data out of
         range) quando o valor calculado ultrapassava a faixa do instrumento.
+
+        clear_protection_latch=True somente nas iterações de reinício após
+        disparo de OVP/OCP — nesse caso o CLEar é necessário e válido porque
+        a proteção definitivamente disparou. Na primeira configuração (latch
+        limpo), enviar CLEar pode gerar erro 521 em alguns firmwares da E363x.
         """
         if self._config.ovp_level_v <= 0 and self._config.ocp_level_a <= 0:
             return True
         for attempt in range(1, 3):
             try:
+                # Limpa fila de erros residuais (do heartbeat, shutdown anterior
+                # ou outras operações) antes de reconfigurar, para que o
+                # check_error() ao final reflita apenas esta sequência.
+                self._instrument.clear_status()
                 if self._config.ovp_level_v > 0:
-                    self._instrument.set_overvoltage_protection(self._config.ovp_level_v)
+                    self._instrument.set_overvoltage_protection(
+                        self._config.ovp_level_v,
+                        clear_latch=clear_protection_latch,
+                    )
                 if self._config.ocp_level_a > 0:
-                    self._instrument.set_overcurrent_protection(self._config.ocp_level_a)
+                    self._instrument.set_overcurrent_protection(
+                        self._config.ocp_level_a,
+                        clear_latch=clear_protection_latch,
+                    )
                 return True
             except InstrumentCommunicationError as exc:
                 self._on_event(
