@@ -103,6 +103,10 @@ class RegistrationView(QtWidgets.QWidget):
         self._update_clock()
 
         self.refresh_operator_history()
+        # addItem() no combo de operadores seleciona o índice 0 automaticamente
+        # (histórico do último operador), deixando "Operador"/"IF" pré-preenchidos
+        # já na abertura do app. clear_form() zera a seleção sem mexer na lista.
+        self.clear_form()
 
     def refresh_operator_history(self) -> None:
         self.operator_combo.clear()
