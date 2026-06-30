@@ -198,6 +198,7 @@ class _MonitoringPanel(QtWidgets.QWidget):
         voltage_max: float,
         duration_s: float,
         current_max: float,
+        step_voltages: list[float] | None = None,
         total_steps: int = 1,
         protection_armed: bool = False,
     ) -> None:
@@ -216,7 +217,7 @@ class _MonitoringPanel(QtWidgets.QWidget):
         # operador (sempre verde, mesmo sem nada armado).
         self.protection_badge.set_active(protection_armed)
         self.live_chart.clear()
-        self.live_chart.set_voltage_limits(voltage_min, voltage_max, duration_s)
+        self.live_chart.set_voltage_limits(voltage_min, voltage_max, duration_s, step_voltages)
         self.live_chart.set_current_range(current_max)
         self.event_log_edit.clear()
 
@@ -420,6 +421,7 @@ class MainWindow(QtWidgets.QMainWindow):
             run_config.voltage_max,
             total_duration_s,
             run_config.current_max,
+            step_voltages=[step.voltage for step in steps],
             total_steps=len(steps),
             protection_armed=run_config.ovp_level_v > 0 or run_config.ocp_level_a > 0,
         )

@@ -119,15 +119,31 @@ class LiveChart(QtWidgets.QWidget):
         layout.addWidget(chart_view)
 
         self._t0: float | None = None
+        self._y_min: float = 0.0
+        self._y_max: float = 10.0
 
-    def set_voltage_limits(self, voltage_min: float, voltage_max: float, duration_s: float) -> None:
+    def set_voltage_limits(
+        self,
+        voltage_min: float,
+        voltage_max: float,
+        duration_s: float,
+        step_voltages: list[float] | None = None,
+    ) -> None:
         self._voltage_min_series.replace([QtCore.QPointF(0, voltage_min), QtCore.QPointF(duration_s, voltage_min)])
         self._voltage_max_series.replace([QtCore.QPointF(0, voltage_max), QtCore.QPointF(duration_s, voltage_max)])
         x_max = max(duration_s, 1.0)
         self._axis_x.setRange(0, x_max)
         self._axis_x.setTickCount(min(11, max(2, int(x_max // 10) + 2)))
-        margin = max(0.5, (voltage_max - voltage_min) * 0.2)
-        self._axis_voltage.setRange(voltage_min - margin, voltage_max + margin)
+        # O eixo Y engloba as linhas-guia (min/max) E as tensões reais dos
+        # passos — sem isso, se o nominal for maior que voltage_max, a linha
+        # de tensão fica acima do eixo e o operador não vê nada no gráfico.
+        all_v = [voltage_min, voltage_max] + (step_voltages or [])
+        v_lo = min(all_v)
+        v_hi = max(all_v)
+        margin = max(0.5, (v_hi - v_lo) * 0.2)
+        self._y_min = v_lo - margin
+        self._y_max = v_hi + margin
+        self._axis_voltage.setRange(self._y_min, self._y_max)
         self._axis_voltage.setTickCount(8)
 
     def set_current_range(self, current_max: float) -> None:
@@ -144,6 +160,19 @@ class LiveChart(QtWidgets.QWidget):
         current_points = [QtCore.QPointF(s.timestamp - self._t0, s.current) for s in samples]
         self._voltage_series.replace(voltage_points)
         self._current_series.replace(current_points)
+
+        # Expande o eixo Y se alguma leitura ultrapassar o range configurado.
+        v_vals = [s.voltage for s in samples]
+        lo, hi = min(v_vals), max(v_vals)
+        expand = False
+        if lo < self._y_min:
+            self._y_min = lo - max(0.5, (self._y_max - self._y_min) * 0.1)
+            expand = True
+        if hi > self._y_max:
+            self._y_max = hi + max(0.5, (self._y_max - self._y_min) * 0.1)
+            expand = True
+        if expand:
+            self._axis_voltage.setRange(self._y_min, self._y_max)
 
     def clear(self) -> None:
         self._t0 = None
