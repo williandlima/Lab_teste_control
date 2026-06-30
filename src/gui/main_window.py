@@ -199,6 +199,7 @@ class _MonitoringPanel(QtWidgets.QWidget):
         duration_s: float,
         current_max: float,
         total_steps: int = 1,
+        protection_armed: bool = False,
     ) -> None:
         self._total_steps = max(1, total_steps)
         self.state_label.setText("Estado: —")
@@ -209,7 +210,11 @@ class _MonitoringPanel(QtWidgets.QWidget):
         self.current_display.set_limits(None, current_max)
         self.remote_badge.set_unknown()
         self.output_badge.set_unknown()
-        self.protection_badge.set_active(True)
+        # Reflete se o operador realmente armou OVP/OCP (seção 3.3): com
+        # ovp_level_v/ocp_level_a = 0 a fonte não tem proteção configurada
+        # por este app, e o badge fixo em "True" estava mentindo isso pro
+        # operador (sempre verde, mesmo sem nada armado).
+        self.protection_badge.set_active(protection_armed)
         self.live_chart.clear()
         self.live_chart.set_voltage_limits(voltage_min, voltage_max, duration_s)
         self.live_chart.set_current_range(current_max)
@@ -407,6 +412,7 @@ class MainWindow(QtWidgets.QMainWindow):
             run_config.test_duration_s,
             run_config.current_max,
             total_steps=len(run_config.steps()),
+            protection_armed=run_config.ovp_level_v > 0 or run_config.ocp_level_a > 0,
         )
         self.header.test_button.setEnabled(False)  # sem sondar a porta durante o teste
         self.stack.setCurrentWidget(self.monitoring_panel)
