@@ -58,10 +58,11 @@ test_defaults:
   sample_batch_interval_s: 5.0
   live_buffer_maxlen: 3600   # ~1h de pontos a 1Hz
   capture_interval_s: 1.0    # grava 1 amostra/s no relatório (display continua em tempo real); 0 = grava todas
-  # Margem (%) acima de voltage_max/current_max para o disparo de OVP/OCP.
-  # voltage_max/current_max são limites de avaliação, não o ponto de falha:
-  # sem margem, a fonte dispara proteção em overshoot/inrush normais.
-  protection_margin_pct: 10.0
+  # Nível de disparo de OVP/OCP (V/A) definido pelo operador na tela de
+  # parâmetros. 0 = não configura proteção (a fonte mantém seu próprio
+  # default e ela não atua durante o ensaio).
+  ovp_level_v: 0.0
+  ocp_level_a: 0.0
 
 logging:
   level: "INFO"
