@@ -69,6 +69,9 @@ class TestDefaultsConfig:
     # monitoramento ao vivo. Evita "overdata" em ensaios longos: a tela mostra
     # cada leitura, mas só uma a cada N segundos é persistida. 0 = grava todas.
     capture_interval_s: float = 1.0
+    # Margem (%) acima de voltage_max/current_max para o disparo de OVP/OCP
+    # (ver core/state_machine.py:_configure_source).
+    protection_margin_pct: float = 10.0
 
 
 @dataclass(frozen=True)

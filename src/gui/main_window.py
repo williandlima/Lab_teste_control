@@ -128,11 +128,23 @@ class _MonitoringPanel(QtWidgets.QWidget):
 
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QtWidgets.QVBoxLayout(self)
+        outer_layout = QtWidgets.QVBoxLayout(self)
 
         title_label = QtWidgets.QLabel("Monitoramento do ensaio")
         title_label.setObjectName("viewTitle")
-        layout.addWidget(title_label)
+        outer_layout.addWidget(title_label)
+
+        # QScrollArea: sem isto, com a janela restaurada (não maximizada) o
+        # conteúdo (gráfico + readouts + log) é cortado sem como rolar, já
+        # que o QStackedWidget dimensiona a janela pela maior página — as
+        # outras 3 páginas (cadastro/parâmetros/avaliação) já têm scroll.
+        scroll = QtWidgets.QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        outer_layout.addWidget(scroll)
+
+        content = QtWidgets.QWidget()
+        scroll.setWidget(content)
+        layout = QtWidgets.QVBoxLayout(content)
 
         self._total_steps = 1
         status_row = QtWidgets.QHBoxLayout()

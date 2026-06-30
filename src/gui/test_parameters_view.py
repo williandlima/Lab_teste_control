@@ -106,12 +106,17 @@ class TestParametersView(QtWidgets.QWidget):
         # monitoramento ao vivo — evita overdata em ensaios longos. 0 = grava todas.
         self.capture_interval_spin = self._make_double_spin(0.0, 3600.0, 2, " s")
         self.capture_interval_spin.setValue(self._test_defaults.get("capture_interval_s", 1.0))
+        # Margem acima de voltage_max/current_max para o disparo de OVP/OCP —
+        # evita que a fonte derrube a saída em overshoot/inrush normais.
+        self.protection_margin_spin = self._make_double_spin(0.0, 100.0, 1, " %")
+        self.protection_margin_spin.setValue(self._test_defaults.get("protection_margin_pct", 10.0))
 
         advanced_form.addRow("Taxa de amostragem (display):", self.polling_rate_spin)
         advanced_form.addRow("Intervalo de captura (gravação):", self.capture_interval_spin)
         advanced_form.addRow("Timeout de estabilização:", self.stabilization_timeout_spin)
         advanced_form.addRow("Tolerância de estabilização:", self.stabilization_tolerance_spin)
         advanced_form.addRow("Falhas consecutivas até erro de comunicação:", self.consecutive_failures_spin)
+        advanced_form.addRow("Margem de proteção OVP/OCP:", self.protection_margin_spin)
         form_layout.addWidget(advanced_group)
 
         sequence_group = QtWidgets.QGroupBox(
@@ -293,6 +298,7 @@ class TestParametersView(QtWidgets.QWidget):
             stabilization_tolerance_v=self.stabilization_tolerance_spin.value(),
             monitoring_consecutive_failures_limit=self.consecutive_failures_spin.value(),
             capture_interval_s=self.capture_interval_spin.value(),
+            protection_margin_pct=self.protection_margin_spin.value(),
         )
 
         self.parameters_submitted.emit(

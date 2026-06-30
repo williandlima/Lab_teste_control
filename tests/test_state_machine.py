@@ -133,6 +133,21 @@ def test_configure_source_failure_leads_to_faulted_with_failsafe_shutdown() -> N
     instrument.output_on.assert_not_called()
 
 
+def test_configure_source_arms_protection_above_reference_limits() -> None:
+    """OVP/OCP devem ter margem acima de voltage_max/current_max — armar exatamente
+    no limite de compliance faz a fonte disparar a proteção em overshoot/inrush
+    normais, derrubando a saída sem motivo real."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    config = _make_config(voltage_max=12.5, current_max=2.0, protection_margin_pct=10.0)
+    sm = TestStateMachine(instrument, buffer, config)
+
+    sm.run()
+
+    instrument.set_overvoltage_protection.assert_called_once_with(pytest.approx(13.75))
+    instrument.set_overcurrent_protection.assert_called_once_with(pytest.approx(2.2))
+
+
 def test_monitor_resyncs_buffer_after_read_failure() -> None:
     """Após falha de leitura, limpa o buffer para não casar resposta com comando errado."""
     instrument = _make_mock_instrument()

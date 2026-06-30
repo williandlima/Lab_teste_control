@@ -77,6 +77,11 @@ class TestRunConfig:
     # Intervalo entre capturas GRAVADAS (s). 0 = grava toda leitura. Distinto da
     # taxa de polling (display): evita overdata no relatório em ensaios longos.
     capture_interval_s: float = 0.0
+    # Margem (%) acima de voltage_max/current_max usada para armar a proteção
+    # de hardware (OVP/OCP). Necessária porque voltage_max/current_max são os
+    # limites de avaliação/compliance, não o nível de disparo: sem margem, a
+    # fonte entra em OVP/OCP por overshoot/inrush normais durante a operação.
+    protection_margin_pct: float = 10.0
 
     def steps(self) -> list[PowerStep]:
         """Sequência efetiva: usa power_sequence se houver, senão 1 passo único."""
@@ -208,13 +213,21 @@ class TestStateMachine:
         return False
 
     def _configure_source(self) -> bool:
-        """Arma OVP/OCP nos limites configurados como proteção de hardware real
-        (independente da regra de não-avaliação automática: isto é uma camada
-        de segurança do instrumento, não um veredito de PASS/FAIL)."""
+        """Arma OVP/OCP como proteção de hardware real (independente da regra de
+        não-avaliação automática: isto é uma camada de segurança do instrumento,
+        não um veredito de PASS/FAIL).
+
+        O nível de disparo fica acima de voltage_max/current_max por uma margem
+        (`protection_margin_pct`): esses dois são os limites de avaliação/
+        compliance, não o ponto de falha real. Armar a proteção exatamente
+        neles faz a fonte disparar OVP/OCP em overshoot ou inrush normais,
+        derrubando a saída sem motivo (o ensaio "trava" perto de zero).
+        """
+        margin = 1.0 + (self._config.protection_margin_pct / 100.0)
         for attempt in range(1, 3):
             try:
-                self._instrument.set_overvoltage_protection(self._config.voltage_max)
-                self._instrument.set_overcurrent_protection(self._config.current_max)
+                self._instrument.set_overvoltage_protection(self._config.voltage_max * margin)
+                self._instrument.set_overcurrent_protection(self._config.current_max * margin)
                 return True
             except InstrumentCommunicationError as exc:
                 self._on_event(
