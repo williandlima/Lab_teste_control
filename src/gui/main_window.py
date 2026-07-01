@@ -186,10 +186,26 @@ class _MonitoringPanel(QtWidgets.QWidget):
 
         readouts_widget = QtWidgets.QWidget()
         readouts_layout = QtWidgets.QVBoxLayout(readouts_widget)
-        self.voltage_display = SegmentDisplay(unit="V", decimals=3)
-        self.current_display = SegmentDisplay(unit="A", decimals=3)
-        readouts_layout.addWidget(self.voltage_display)
+        readouts_layout.setSpacing(4)
+
+        # Corrente — grandeza primária do ensaio (maior destaque visual).
+        _lbl_current = QtWidgets.QLabel("CORRENTE")
+        _lbl_current.setProperty("displayRole", "primary")
+        self.current_display = SegmentDisplay(unit="A", decimals=3, font_size=36)
+        self.current_display.setObjectName("segmentDisplayCurrent")
+        readouts_layout.addWidget(_lbl_current)
         readouts_layout.addWidget(self.current_display)
+
+        readouts_layout.addSpacing(8)
+
+        # Tensão — preset de procedimento (menor destaque visual).
+        _lbl_voltage = QtWidgets.QLabel("Tensão")
+        _lbl_voltage.setProperty("displayRole", "secondary")
+        self.voltage_display = SegmentDisplay(unit="V", decimals=3, font_size=22)
+        self.voltage_display.setObjectName("segmentDisplayVoltage")
+        readouts_layout.addWidget(_lbl_voltage)
+        readouts_layout.addWidget(self.voltage_display)
+
         readouts_layout.addStretch()
         splitter.addWidget(readouts_widget)
 

@@ -39,7 +39,13 @@ def _load_segment_font_family() -> str | None:
 class SegmentDisplay(QtWidgets.QLabel):
     """Mostra um valor numérico com unidade, estilo display de 7 segmentos."""
 
-    def __init__(self, unit: str, decimals: int = 3, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        unit: str,
+        decimals: int = 3,
+        font_size: int = 28,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._unit = unit
         self._decimals = decimals
@@ -53,7 +59,7 @@ class SegmentDisplay(QtWidgets.QLabel):
         family = _load_segment_font_family()
         font = QtGui.QFont(family if family else "Consolas")
         font.setStyleHint(QtGui.QFont.Monospace)
-        font.setPointSize(28)
+        font.setPointSize(font_size)
         if family is None:
             font.setLetterSpacing(QtGui.QFont.PercentageSpacing, 110)
         self.setFont(font)
