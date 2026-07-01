@@ -13,7 +13,40 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+_PAGE_USABLE_WIDTH = A4[0] - 2 * inch  # margens padrão do SimpleDocTemplate: 1" de cada lado
+
+
+class _NumberedCanvas(Canvas):
+    """Canvas que grava 'Página X de Y' — reportlab só sabe o total de
+    páginas depois de renderizar tudo, então guarda o estado de cada página
+    e desenha o rodapé numa segunda passada em `save()`.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._saved_page_states: list[dict] = []
+
+    def showPage(self) -> None:
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self) -> None:
+        total_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_page_number(total_pages)
+            super().showPage()
+        super().save()
+
+    def _draw_page_number(self, total_pages: int) -> None:
+        self.setFont("Helvetica", 8)
+        self.setFillColor(colors.grey)
+        self.drawRightString(
+            A4[0] - 0.6 * inch, 0.4 * inch, f"Página {self._pageNumber} de {total_pages}"
+        )
 
 from config import BrandingConfig
 from reports.chart import render_samples_chart
@@ -44,16 +77,49 @@ def _fields_table(fields: list[tuple[str, str]]) -> Table:
     return table
 
 
-def _data_table(columns: list[str], rows: list[list[str]], branding: BrandingConfig) -> Table:
-    table = Table([columns] + rows, repeatRows=1)
+def _data_table(
+    columns: list[str], rows: list[list[str]], branding: BrandingConfig, col_widths: list[float] | None = None
+) -> Table:
+    """Tabela com células em `Paragraph` (quebram linha) em vez de string pura.
+
+    Descoberto ao inspecionar o PDF renderizado: strings simples NÃO quebram
+    linha em `Table` do reportlab — só transbordam por cima da coluna vizinha
+    sem erro nenhum. Com 10 colunas (tabela de estatísticas por ciclo) isso
+    produzia texto sobreposto e ilegível. `colWidths` explícito (proporcional
+    ao tamanho do cabeçalho quando não informado) garante que a tabela nunca
+    ultrapassa a largura da página.
+    """
+    header_style = ParagraphStyle(
+        "FctTableHeader", fontName="Helvetica-Bold", fontSize=8, leading=10,
+        textColor=colors.HexColor(branding.color_text_on_navy),
+    )
+    cell_style = ParagraphStyle("FctTableCell", fontName="Helvetica", fontSize=8, leading=10)
+
+    if col_widths is None:
+        weights = [max(len(str(c)), 6) for c in columns]
+        total_weight = sum(weights)
+        col_widths = [_PAGE_USABLE_WIDTH * w / total_weight for w in weights]
+        # Piso mínimo: com muitas colunas (ex. 10 na tabela de estatísticas),
+        # a proporção pura deixa cabeçalhos curtos ("Ciclo", "Amostras") com
+        # largura menor que uma letra — o texto quebra uma letra por linha.
+        # Reescala proporcionalmente depois de aplicar o piso para não
+        # ultrapassar a largura útil da página.
+        min_width = 0.55 * inch
+        col_widths = [max(w, min_width) for w in col_widths]
+        total_width = sum(col_widths)
+        if total_width > _PAGE_USABLE_WIDTH:
+            scale = _PAGE_USABLE_WIDTH / total_width
+            col_widths = [w * scale for w in col_widths]
+
+    header_row = [Paragraph(str(h), header_style) for h in columns]
+    body_rows = [[Paragraph(str(v), cell_style) for v in data_row] for data_row in rows]
+    table = Table([header_row] + body_rows, colWidths=col_widths, repeatRows=1)
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(branding.color_primary_navy)),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor(branding.color_text_on_navy)),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
     )
@@ -123,7 +189,7 @@ def generate_pdf_report(
         elements.append(Paragraph(samples_section["heading"], heading_style))
         sampled = evenly_sampled(data.samples, samples_section["max_rows"])
         sample_rows = [
-            [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
+            [s.timestamp, str(s.step_index + 1), f"{s.current_measured:.3f}", f"{s.voltage_measured:.3f}"]
             for s in sampled
         ]
         elements.append(_data_table(samples_section["columns"], sample_rows, branding))
@@ -138,5 +204,5 @@ def generate_pdf_report(
         elements.append(Paragraph(template["footer"].format(**context), footer_style))
 
         # build() lê a imagem do disco; precisa ocorrer com o tmp_dir ainda aberto.
-        doc.build(elements)
+        doc.build(elements, canvasmaker=_NumberedCanvas)
     return output_path

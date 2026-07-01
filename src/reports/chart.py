@@ -23,9 +23,12 @@ from PIL import Image, ImageDraw, ImageFont
 from config import BrandingConfig
 from reports.report_data import ReportData
 
-_W, _H = 960, 420
-_M_LEFT, _M_RIGHT, _M_TOP, _M_BOTTOM = 70, 70, 46, 52
+# 1.5x a resolução original (960x420, ~150 DPI num embed de 6,4"): nítido o
+# bastante para impressão/zoom sem pesar o arquivo.
+_W, _H = 1440, 630
+_M_LEFT, _M_RIGHT, _M_TOP, _M_BOTTOM = 105, 105, 69, 78
 _MAX_POINTS = 600
+_FONT_SIZE = 16
 
 _COLOR_VOLTAGE = "#FF7A29"   # laranja — tensão (preset)
 _COLOR_CURRENT = "#1F9E91"   # teal — corrente (grandeza primária)
@@ -37,6 +40,25 @@ _COLOR_TEXT = "#222222"
 
 _LINE_W_CURRENT = 3    # corrente: linha grossa (grandeza primária)
 _LINE_W_VOLTAGE = 2    # tensão: linha padrão
+
+_FONT_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts" / "DejaVuSans.ttf"
+
+
+def _load_font(size: int) -> ImageFont.ImageFont:
+    """Fonte TrueType legível para o PNG do gráfico.
+
+    `ImageFont.load_default()` é um bitmap minúsculo sem antialiasing — destoa
+    do resto do documento Word/PDF, e não cobre "ã"/"×" (caixas de glifo
+    ausente: "Tensão" virava "Tens□o"). DejaVu Sans tem cobertura Unicode
+    completa e vem embutida em `assets/fonts/` (mesmo padrão do logo em
+    `assets/branding/`) para não depender de fonte instalada no SO do
+    operador (Windows de chão de fábrica, sem garantia de DejaVu). Cai para
+    o bitmap padrão só se o arquivo sumir do pacote.
+    """
+    try:
+        return ImageFont.truetype(str(_FONT_PATH), size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 def _parse_elapsed_seconds(timestamps: list[str]) -> list[float]:
@@ -88,17 +110,21 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
     v_pad = (v_hi - v_lo) * 0.08 or 0.5
     v_lo, v_hi = v_lo - v_pad, v_hi + v_pad
 
-    # Escala de corrente: sempre parte do 0, alcança o máximo observado + 10%
-    # (ou o limite configurado, o que for maior).
+    # Escala de corrente: sempre parte do 0 e acompanha a corrente REAL
+    # observada — não o limite de proteção configurado (`current_max`), que
+    # costuma ser bem maior que a corrente do DUT. Usar o limite como piso da
+    # escala (como antes) espremia a curva real perto de zero — o mesmo
+    # defeito já corrigido no gráfico ao vivo (`gui/widgets/live_chart.py`).
     i_observed_max = max(amps)
-    i_scale_max = max(i_observed_max, i_hi_ref if i_hi_ref is not None else 0.0) * 1.1 or 1.0
+    i_scale_max = max(i_observed_max * 1.3, 0.05)
     i_lo = 0.0
 
     x_lo, x_hi = (xs[0], xs[-1]) if xs[-1] > xs[0] else (0.0, 1.0)
 
     img = Image.new("RGB", (_W, _H), "white")
     draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
+    font = _load_font(_FONT_SIZE)
+    title_font = _load_font(_FONT_SIZE + 4)
 
     plot_l, plot_r = _M_LEFT, _W - _M_RIGHT
     plot_t, plot_b = _M_TOP, _H - _M_BOTTOM
@@ -113,7 +139,7 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
         return plot_b - (a - i_lo) / (i_scale_max - i_lo) * (plot_b - plot_t)
 
     # Título — corrente primeiro, refletindo a hierarquia do ensaio.
-    draw.text((plot_l, 14), "Corrente e Tensão × Tempo", fill=_COLOR_TEXT, font=font)
+    draw.text((plot_l, 14), "Corrente e Tensão × Tempo", fill=_COLOR_TEXT, font=title_font)
 
     # Grade horizontal + rótulos: tensão à esquerda (laranja), corrente à direita (teal).
     for v in _nice_ticks(v_lo, v_hi):
@@ -139,7 +165,11 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
             draw.line([(seg, y), (min(seg + 6, plot_r), y)], fill=_COLOR_V_REF)
 
     # Linha de limite de CORRENTE (vermelho tracejado) — faixa crítica.
-    if i_hi_ref is not None:
+    # Só desenha se estiver dentro da área visível: como a escala agora segue
+    # a corrente observada (não mais o limite, ver acima), o limite de
+    # proteção fica tipicamente bem acima do topo do gráfico — desenhar fora
+    # da moldura poluiria o título/legenda com um traço sem contexto.
+    if i_hi_ref is not None and i_lo <= i_hi_ref <= i_scale_max:
         y = py_i(i_hi_ref)
         for seg in range(plot_l, plot_r, 12):
             draw.line([(seg, y), (min(seg + 6, plot_r), y)], fill=_COLOR_I_LIMIT)
@@ -155,8 +185,15 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
         draw.line(i_points, fill=_COLOR_CURRENT, width=_LINE_W_CURRENT)
 
     # Legenda — corrente primeiro, tensão depois, consistente com a hierarquia.
-    draw.text((plot_r - 200, 14), "■ Corrente (A)", fill=_COLOR_CURRENT, font=font)
-    draw.text((plot_r - 90,  14), "■ Tensão (V)",   fill=_COLOR_VOLTAGE, font=font)
+    # Largura calculada em vez de offsets fixos: com fonte TrueType (variável,
+    # diferente da bitmap monoespaçada anterior) offsets fixos faziam os dois
+    # rótulos se sobreporem ("Corrente (A" colidindo com o quadrado laranja).
+    legend_gap = 20
+    corrente_label, tensao_label = "■ Corrente (A)", "■ Tensão (V)"
+    tensao_x = plot_r - draw.textlength(tensao_label, font=font)
+    corrente_x = tensao_x - legend_gap - draw.textlength(corrente_label, font=font)
+    draw.text((corrente_x, 14), corrente_label, fill=_COLOR_CURRENT, font=font)
+    draw.text((tensao_x, 14), tensao_label, fill=_COLOR_VOLTAGE, font=font)
 
     output_path = Path(output_path)
     img.save(output_path, "PNG")

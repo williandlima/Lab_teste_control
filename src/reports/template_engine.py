@@ -7,6 +7,7 @@ de cada formato.
 """
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,7 @@ def build_context(data: ReportData, branding: BrandingConfig) -> dict[str, str]:
         "evaluation_operator_name": data.operator.name if evaluation else "—",
         "evaluated_at": (evaluation.evaluated_at or "—") if evaluation else "—",
         "evaluation_comment": (evaluation.comment or "—") if evaluation else "—",
+        "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return context
 
@@ -125,20 +127,25 @@ def resolve_output_path(data, output_dir, extension: str, base_name: str | None 
 
 
 def step_stats_rows(data: ReportData) -> list[list[str]]:
-    """Linhas da tabela de estatísticas por ciclo (compartilhada Word/PDF)."""
+    """Linhas da tabela de estatísticas por ciclo (compartilhada Word/PDF).
+
+    Corrente vem antes da tensão — é a grandeza primária do ensaio (tensão é
+    preset do procedimento), mesma ordem já usada no resumo do Excel.
+    """
     rows: list[list[str]] = []
     for st in data.step_stats:
         rows.append(
             [
                 str(st.step_index + 1),
                 str(st.sample_count),
+                f"{st.current_mean:.3f}",
+                f"{st.current_std:.3f}",
+                f"{st.current_min:.3f} / {st.current_max:.3f}",
                 f"{st.voltage_mean:.3f}",
                 f"{st.voltage_std:.3f}",
                 f"{st.voltage_min:.3f} / {st.voltage_max:.3f}",
-                f"{st.current_mean:.3f}",
-                f"{st.current_min:.3f} / {st.current_max:.3f}",
-                str(st.voltage_out_of_range),
                 str(st.current_over_limit),
+                str(st.voltage_out_of_range),
             ]
         )
     return rows

@@ -30,6 +30,9 @@ from reports.template_engine import (
     step_stats_rows,
 )
 
+_LABEL_COL_WIDTH_IN = 2.2
+_VALUE_COL_WIDTH_IN = 3.8
+
 
 def _rgb(hex_color: str) -> RGBColor:
     return RGBColor.from_string(hex_color.lstrip("#"))
@@ -47,6 +50,34 @@ def _add_heading(doc: Document, text: str, branding: BrandingConfig) -> None:
         run.font.color.rgb = _rgb(branding.color_secondary_navy)
 
 
+def _fix_column_widths(table, widths_in: list[float]) -> None:
+    """Larguras fixas de coluna (mesma proporção do PDF: 2,2"/3,8").
+
+    Sem `table.autofit = False`, o Word ignora a largura pedida e reparte o
+    espaço automaticamente — valores longos (ex.: resposta *IDN?) quebram de
+    forma imprevisível. E a largura precisa ser setada em CADA célula, não só
+    na coluna (peculiaridade do formato .docx: a coluna não é uma entidade
+    própria, é inferida das larguras de célula da 1ª linha).
+    """
+    table.autofit = False
+    for row in table.rows:
+        for idx, width_in in enumerate(widths_in):
+            row.cells[idx].width = Inches(width_in)
+
+
+def _repeat_header_row(row) -> None:
+    """Marca a linha como cabeçalho repetido em toda página (w:tblHeader).
+
+    Sem isso, uma tabela de amostras com centenas de linhas quebra em várias
+    páginas no Word e só a primeira mostra os nomes das colunas — o PDF já
+    resolve isso via `repeatRows=1` do reportlab (ver `pdf_report.py`).
+    """
+    tr_pr = row._tr.get_or_add_trPr()
+    header = OxmlElement("w:tblHeader")
+    header.set(qn("w:val"), "true")
+    tr_pr.append(header)
+
+
 def _add_fields_table(doc: Document, fields: list[tuple[str, str]]) -> None:
     table = doc.add_table(rows=0, cols=2)
     table.style = "Table Grid"
@@ -55,6 +86,7 @@ def _add_fields_table(doc: Document, fields: list[tuple[str, str]]) -> None:
         row.cells[0].text = label
         row.cells[0].paragraphs[0].runs[0].font.bold = True
         row.cells[1].text = value
+    _fix_column_widths(table, [_LABEL_COL_WIDTH_IN, _VALUE_COL_WIDTH_IN])
 
 
 def _add_data_table(
@@ -69,10 +101,43 @@ def _add_data_table(
         run = header_cells[idx].paragraphs[0].runs[0]
         run.font.bold = True
         run.font.color.rgb = _rgb(branding.color_text_on_navy)
+    _repeat_header_row(table.rows[0])
     for data_row in rows:
         cells = table.add_row().cells
         for idx, value in enumerate(data_row):
             cells[idx].text = value
+
+
+def _add_page_number_field(paragraph, field_code: str) -> None:
+    run = paragraph.add_run()
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = f" {field_code} "
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    run._r.append(fld_begin)
+    run._r.append(instr)
+    run._r.append(fld_end)
+
+
+def _add_page_number_footer(doc: Document) -> None:
+    """'Página X de Y' no rodapé de página (campos PAGE/NUMPAGES do Word).
+
+    Necessário para reimpressão/arquivamento de relatórios longos — sem isso
+    não dá pra saber se uma página impressa avulsa pertence a este relatório
+    nem se faltam páginas.
+    """
+    footer_paragraph = doc.sections[0].footer.paragraphs[0]
+    footer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_paragraph.add_run("Página ")
+    _add_page_number_field(footer_paragraph, "PAGE")
+    footer_paragraph.add_run(" de ")
+    _add_page_number_field(footer_paragraph, "NUMPAGES")
+    for run in footer_paragraph.runs:
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
 
 
 def generate_word_report(
@@ -82,6 +147,7 @@ def generate_word_report(
     context = build_context(data, branding)
 
     doc = Document()
+    _add_page_number_footer(doc)
 
     if branding.logo_path.exists():
         doc.add_picture(str(branding.logo_path), width=Inches(1.0))
@@ -112,6 +178,7 @@ def generate_word_report(
         row.cells[1].text = value
         if idx == 0 and color:
             _shade_cell(row.cells[1], color)
+    _fix_column_widths(table, [_LABEL_COL_WIDTH_IN, _VALUE_COL_WIDTH_IN])
 
     chart_png: Path | None = None
     chart_section = template["sections"]["chart"]
@@ -131,7 +198,7 @@ def generate_word_report(
         _add_heading(doc, samples_section["heading"], branding)
         sampled = evenly_sampled(data.samples, samples_section["max_rows"])
         sample_rows = [
-            [s.timestamp, str(s.step_index), f"{s.voltage_measured:.3f}", f"{s.current_measured:.3f}"]
+            [s.timestamp, str(s.step_index + 1), f"{s.current_measured:.3f}", f"{s.voltage_measured:.3f}"]
             for s in sampled
         ]
         _add_data_table(doc, samples_section["columns"], sample_rows, branding)
