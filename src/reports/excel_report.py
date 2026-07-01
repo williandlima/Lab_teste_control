@@ -45,6 +45,7 @@ _VALUE_COL_WIDTH = 48
 # Cores idênticas ao LiveChart (consistência ensaio → relatório)
 _HEX_VOLTAGE = "FF7A29"   # laranja
 _HEX_CURRENT = "1F9E91"   # teal
+_HEX_LIMIT = "E74C3C"     # vermelho — mesma cor das linhas-guia do LiveChart
 _LINE_W_VOLTAGE = 15875   # ~1.25 pt em EMUs (12700 EMUs = 1 pt)
 _LINE_W_CURRENT = 31750   # ~2.5 pt — corrente é a grandeza primária
 
@@ -165,8 +166,17 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
 
     Coluna E ("Tempo (s)") contém o tempo decorrido em segundos desde a
     primeira amostra — permite plotagem direta no Excel sem manipular datas.
+    Colunas F/G ("V mín (ref.)"/"V máx (ref.)") repetem os limites configurados
+    em toda linha — servem só de fonte para as linhas-guia tracejadas do
+    gráfico dual-eixo, replicando o LiveChart do ensaio (seção 11.1).
     """
+    cfg = data.config_snapshot
+    v_lo_ref = cfg.get("voltage_min")
+    v_hi_ref = cfg.get("voltage_max")
+
     columns = ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)", "Tempo (s)"]
+    if v_lo_ref is not None and v_hi_ref is not None:
+        columns += ["V mín (ref.)", "V máx (ref.)"]
     for col_idx, header in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = Font(bold=True, color=branding.color_text_on_navy.lstrip("#"))
@@ -187,6 +197,9 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
         ws.cell(row=i, column=3, value=round(s.voltage_measured, 4))
         ws.cell(row=i, column=4, value=round(s.current_measured, 4))
         ws.cell(row=i, column=5, value=elapsed)
+        if v_lo_ref is not None and v_hi_ref is not None:
+            ws.cell(row=i, column=6, value=v_lo_ref)
+            ws.cell(row=i, column=7, value=v_hi_ref)
 
     last_row = len(data.samples) + 1
     ws.column_dimensions["A"].width = 24
@@ -237,8 +250,14 @@ def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int
     c_voltage.width = 26
     c_voltage.y_axis.title = "Tensão (V)"
     c_voltage.y_axis.axId = 100
+    c_voltage.y_axis.axPos = "l"
     c_voltage.y_axis.numFmt = '0.00"V"'
     c_voltage.x_axis.axId = 10
+    # openpyxl cria todo eixo com axPos="l" por padrão (mesmo o de categorias) —
+    # sem esta linha o eixo do tempo fica desenhado na vertical à esquerda,
+    # sobrepondo o eixo de tensão, e o Excel real (diferente do LibreOffice)
+    # recusa a plotar as séries: gráfico aparece em branco/sem valores.
+    c_voltage.x_axis.axPos = "b"
     c_voltage.x_axis.title = "Tempo (s)"
     c_voltage.x_axis.numFmt = '0"s"'
 
@@ -253,10 +272,22 @@ def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int
     c_voltage.series[0].graphicalProperties.line.solidFill = _HEX_VOLTAGE
     c_voltage.series[0].graphicalProperties.line.width = _LINE_W_VOLTAGE
 
+    # Linhas-guia tracejadas de V mín/máx (colunas F/G) — mesma referência
+    # visual do LiveChart do ensaio (linha vermelha tracejada), nunca um
+    # veredito automático.
+    if v_lo_ref is not None and v_hi_ref is not None:
+        limit_ref = Reference(ws_samples, min_col=6, max_col=7, min_row=1, max_row=last_row)
+        c_voltage.add_data(limit_ref, titles_from_data=True)
+        for limit_series in c_voltage.series[1:3]:
+            limit_series.graphicalProperties.line.solidFill = _HEX_LIMIT
+            limit_series.graphicalProperties.line.width = 12700  # 1 pt
+            limit_series.graphicalProperties.line.dashStyle = "dash"
+
     # -- Chart secundário: Corrente no eixo Y direito (grandeza primária) --
     c_current = LineChart()
     c_current.y_axis.title = "Corrente (A)"
     c_current.y_axis.axId = 200
+    c_current.y_axis.axPos = "r"
     c_current.y_axis.crossAx = 100
     c_current.y_axis.crosses = "max"   # eixo Y da corrente fica na direita
     c_current.y_axis.numFmt = '0.000"A"'

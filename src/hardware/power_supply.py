@@ -33,6 +33,32 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.write("SYSTem:REMote")
         self.scpi.clear_status()
         self.scpi.check_error()
+        self._reset_residual_state()
+
+    def _reset_residual_state(self) -> None:
+        """Garante estado limpo a cada nova conexão (início de cada ensaio).
+
+        Sem isto, se o ensaio anterior terminou com um latch de OVP/OCP
+        disparado, a fonte mantém a saída travada em hardware mesmo depois
+        que o novo ensaio manda `OUTPut:STATe ON` — o operador vê leituras
+        de tensão/corrente bem abaixo do setpoint recém-aplicado (ex.: ~0 V
+        com 12 V configurado). Cada etapa é best-effort e não interrompe a
+        conexão: um erro aqui não pode impedir o ensaio de começar.
+        """
+        try:
+            self.output_off()
+        except InstrumentCommunicationError as exc:
+            _logger.warning("Falha ao garantir saída desligada na conexão: %s", exc)
+        for is_tripped, clear, name in (
+            (self.is_overvoltage_protection_tripped, self.clear_overvoltage_protection, "OVP"),
+            (self.is_overcurrent_protection_tripped, self.clear_overcurrent_protection, "OCP"),
+        ):
+            try:
+                if is_tripped():
+                    _logger.info("Latch de %s de uma sessão anterior detectado — limpando.", name)
+                    clear()
+            except InstrumentCommunicationError as exc:
+                _logger.warning("Falha ao verificar/limpar latch de %s na conexão: %s", name, exc)
 
     def on_disconnecting(self) -> None:
         """Failsafe: tenta desligar a saída antes de fechar a porta.
