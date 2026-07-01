@@ -712,7 +712,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Troca de página com fade-in de 180 ms; sem efeito se já é a página ativa."""
         if self.stack.currentWidget() is widget:
             return
-        self._switch_to(widget)
+        self.stack.setCurrentWidget(widget)
         effect = QtWidgets.QGraphicsOpacityEffect(widget)
         widget.setGraphicsEffect(effect)
         anim = QtCore.QPropertyAnimation(effect, b"opacity", self)

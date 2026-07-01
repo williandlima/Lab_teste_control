@@ -57,6 +57,37 @@ def test_main_window_builds_full_flow(qtbot, app_config, tmp_path: Path) -> None
     db.close()
 
 
+def test_registration_submit_button_advances_to_parameters(qtbot, app_config, tmp_path: Path) -> None:
+    """Regressão: _switch_to() já teve um bug de auto-recursão que travava
+    TODA troca de tela (RecursionError engolido pelo Qt) — o botão "Iniciar
+    cadastro do teste" parecia simplesmente não fazer nada. Sem um teste que
+    realmente clica o botão e verifica a troca de página, isso passou pelo
+    CI sem ser detectado."""
+    from gui.main_window import MainWindow
+
+    db = Database(tmp_path / "switch_to.db")
+    db.connect()
+    window = MainWindow(app_config, db)
+    qtbot.addWidget(window)
+
+    rv = window.registration_view
+    rv.code_edit.setText("BRD-REG")
+    rv.part_number_edit.setText("PN-REG")
+    rv.revision_edit.setText("A")
+    rv.serial_number_edit.setText("SN-REG")
+    rv.operator_combo.setEditText("Operador Teste")
+    rv.if_edit.setText("IF-1")
+
+    assert window.stack.currentWidget() is rv
+    rv.submit_button.click()
+
+    assert window.stack.currentWidget() is window.parameters_view
+
+    window.parameters_view.back_button.click()
+    assert window.stack.currentWidget() is rv
+    db.close()
+
+
 def test_registration_view_clear_form_resets_fields(qtbot, tmp_path: Path) -> None:
     from database.repositories import BoardRepository, OperatorRepository
     from gui.registration_view import RegistrationView
