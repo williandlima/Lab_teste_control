@@ -4,15 +4,16 @@ Diferente do Word/PDF (documentos de leitura), a planilha é uma FERRAMENTA DE
 ANÁLISE. Por isso:
 
 - as amostras vão COMPLETAS (sem subamostrar) numa aba própria e como NÚMEROS
-  reais (não texto), com timestamps reais — dá para filtrar, ordenar e plotar;
+  reais (não texto), com timestamps e tempo decorrido em segundos — filtrável;
+- coluna "Tempo (s)" permite plotagem direta no Excel, sem manipular datas;
 - formatação condicional realça em vermelho as leituras fora da faixa de
   referência (tensão min/máx; corrente acima do limite) — informativo, nunca
   veredito automático;
-- um gráfico nativo (editável) de tensão/corrente acompanha o resumo;
-- abas separadas: Resumo, Amostras, Eventos.
-
-A cor do resultado avaliado (verde/vermelho/amarelo) realça só a célula do
-veredito que o operador já registrou.
+- gráfico dedicado (aba "Gráfico") com dois eixos Y independentes, idêntico em
+  hierarquia visual ao gráfico do modo ensaio: corrente (teal, linha grossa) no
+  eixo direito, tensão (laranja, linha fina) no eixo esquerdo — corrente é a
+  grandeza primária do ensaio, tensão é preset do procedimento;
+- abas separadas: Resumo, Amostras, Gráfico, Eventos.
 """
 from __future__ import annotations
 
@@ -40,6 +41,12 @@ from reports.template_engine import (
 
 _LABEL_COL_WIDTH = 32
 _VALUE_COL_WIDTH = 48
+
+# Cores idênticas ao LiveChart (consistência ensaio → relatório)
+_HEX_VOLTAGE = "FF7A29"   # laranja
+_HEX_CURRENT = "1F9E91"   # teal
+_LINE_W_VOLTAGE = 15875   # ~1.25 pt em EMUs (12700 EMUs = 1 pt)
+_LINE_W_CURRENT = 31750   # ~2.5 pt — corrente é a grandeza primária
 
 
 def _hex_fill(hex_color: str) -> PatternFill:
@@ -125,53 +132,70 @@ def _build_summary_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
     if stats_rows:
         row = _write_heading(ws, row, stats_section["heading"], branding, span=len(stats_section["columns"]))
         # Estatísticas como números reais (não as strings formatadas do Word/PDF).
+        # Corrente vem antes da tensão nas colunas de média/min/max porque é a
+        # grandeza primária do ensaio (tensão é preset do procedimento).
         numeric_rows = [
             [
                 st.step_index + 1,
                 st.sample_count,
+                round(st.current_mean, 4),
+                round(st.current_std, 4),
+                round(st.current_min, 4),
+                round(st.current_max, 4),
                 round(st.voltage_mean, 3),
                 round(st.voltage_std, 3),
                 round(st.voltage_min, 3),
                 round(st.voltage_max, 3),
-                round(st.current_mean, 3),
-                round(st.current_min, 3),
-                round(st.current_max, 3),
-                st.voltage_out_of_range,
                 st.current_over_limit,
+                st.voltage_out_of_range,
             ]
             for st in data.step_stats
         ]
         stats_cols = [
-            "Ciclo", "Amostras", "Tensão méd. (V)", "Tensão desv. (V)",
-            "Tensão mín (V)", "Tensão máx (V)", "Corrente méd. (A)",
-            "Corrente mín (A)", "Corrente máx (A)", "V fora da faixa", "I acima do limite",
+            "Ciclo", "Amostras",
+            "Corrente méd. (A)", "Corrente desv. (A)", "Corrente mín (A)", "Corrente máx (A)",
+            "Tensão méd. (V)", "Tensão desv. (V)", "Tensão mín (V)", "Tensão máx (V)",
+            "I acima do limite", "V fora da faixa",
         ]
         _write_table(ws, row, stats_cols, numeric_rows, branding)
 
 
-def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConfig, context: dict) -> int:
-    """Amostras completas como números; retorna a última linha de dados."""
-    columns = ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)"]
+def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConfig) -> int:
+    """Amostras completas como números; retorna a última linha de dados.
+
+    Coluna E ("Tempo (s)") contém o tempo decorrido em segundos desde a
+    primeira amostra — permite plotagem direta no Excel sem manipular datas.
+    """
+    columns = ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)", "Tempo (s)"]
     for col_idx, header in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = Font(bold=True, color=branding.color_text_on_navy.lstrip("#"))
         cell.fill = _hex_fill(branding.color_primary_navy)
 
+    first_dt: dt.datetime | None = None
     for i, s in enumerate(data.samples, start=2):
-        ts_cell = ws.cell(row=i, column=1, value=_parse_timestamp(s.timestamp))
-        if isinstance(ts_cell.value, dt.datetime):
+        ts_val = _parse_timestamp(s.timestamp)
+        ts_cell = ws.cell(row=i, column=1, value=ts_val)
+        if isinstance(ts_val, dt.datetime):
             ts_cell.number_format = "yyyy-mm-dd hh:mm:ss.000"
+            if first_dt is None:
+                first_dt = ts_val
+            elapsed = round((ts_val - first_dt).total_seconds(), 2)
+        else:
+            elapsed = float(i - 2)  # fallback: usa índice quando timestamp não parseia
         ws.cell(row=i, column=2, value=s.step_index)
         ws.cell(row=i, column=3, value=round(s.voltage_measured, 4))
         ws.cell(row=i, column=4, value=round(s.current_measured, 4))
+        ws.cell(row=i, column=5, value=elapsed)
 
     last_row = len(data.samples) + 1
     ws.column_dimensions["A"].width = 24
     for col in ("B", "C", "D"):
         ws.column_dimensions[col].width = 14
+    ws.column_dimensions["E"].width = 12
     ws.freeze_panes = "A2"
     if last_row >= 1:
-        ws.auto_filter.ref = f"A1:D{max(last_row, 1)}"
+        ws.auto_filter.ref = f"A1:E{max(last_row, 1)}"
 
     # Formatação condicional: realça leituras fora da faixa de referência.
     if data.samples:
@@ -190,18 +214,73 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
     return last_row
 
 
-def _add_chart(ws_summary: Worksheet, ws_samples: Worksheet, last_row: int) -> None:
+def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int, data: ReportData) -> None:
+    """Gráfico dual-eixo: corrente (primária, direita, teal grossa) × tensão (esquerda, laranja fina).
+
+    O eixo X usa a coluna "Tempo (s)" (numérica) — elimina o problema dos
+    rótulos de timestamp que apareciam ilegíveis no gráfico anterior.
+    A hierarquia visual reflete a hierarquia do ensaio: corrente é o que
+    o operador veio observar; tensão é o preset que viabiliza a observação.
+    """
     if last_row < 2:
         return
-    chart = LineChart()
-    chart.title = "Tensão e corrente × amostra"
-    chart.height = 8
-    chart.width = 18
-    data_ref = Reference(ws_samples, min_col=3, max_col=4, min_row=1, max_row=last_row)
-    cats_ref = Reference(ws_samples, min_col=1, min_row=2, max_row=last_row)
-    chart.add_data(data_ref, titles_from_data=True)
-    chart.set_categories(cats_ref)
-    ws_summary.add_chart(chart, "D2")
+
+    cfg = data.config_snapshot
+    v_lo_ref = cfg.get("voltage_min")
+    v_hi_ref = cfg.get("voltage_max")
+    i_hi_ref = cfg.get("current_max")
+
+    # -- Chart primário: Tensão no eixo Y esquerdo --
+    c_voltage = LineChart()
+    c_voltage.title = "Corrente e Tensão × Tempo (ensaio)"
+    c_voltage.height = 15
+    c_voltage.width = 26
+    c_voltage.y_axis.title = "Tensão (V)"
+    c_voltage.y_axis.axId = 100
+    c_voltage.y_axis.numFmt = '0.00"V"'
+    c_voltage.x_axis.axId = 10
+    c_voltage.x_axis.title = "Tempo (s)"
+    c_voltage.x_axis.numFmt = '0"s"'
+
+    if v_lo_ref is not None and v_hi_ref is not None:
+        margin = max(0.5, (v_hi_ref - v_lo_ref) * 0.2)
+        c_voltage.y_axis.scaling.min = round(v_lo_ref - margin, 2)
+        c_voltage.y_axis.scaling.max = round(v_hi_ref + margin, 2)
+
+    v_ref = Reference(ws_samples, min_col=3, max_col=3, min_row=1, max_row=last_row)
+    c_voltage.add_data(v_ref, titles_from_data=True)
+    # Tensão: laranja, linha fina (informação de preset)
+    c_voltage.series[0].graphicalProperties.line.solidFill = _HEX_VOLTAGE
+    c_voltage.series[0].graphicalProperties.line.width = _LINE_W_VOLTAGE
+
+    # -- Chart secundário: Corrente no eixo Y direito (grandeza primária) --
+    c_current = LineChart()
+    c_current.y_axis.title = "Corrente (A)"
+    c_current.y_axis.axId = 200
+    c_current.y_axis.crossAx = 100
+    c_current.y_axis.crosses = "max"   # eixo Y da corrente fica na direita
+    c_current.y_axis.numFmt = '0.000"A"'
+    c_current.x_axis.axId = 10
+    c_current.x_axis.delete = True    # não duplicar o eixo X
+
+    if i_hi_ref is not None:
+        c_current.y_axis.scaling.min = 0
+        c_current.y_axis.scaling.max = round(max(i_hi_ref * 1.2, 0.01), 4)
+
+    i_ref = Reference(ws_samples, min_col=4, max_col=4, min_row=1, max_row=last_row)
+    c_current.add_data(i_ref, titles_from_data=True)
+    # Corrente: teal, linha grossa (grandeza primária do ensaio)
+    c_current.series[0].graphicalProperties.line.solidFill = _HEX_CURRENT
+    c_current.series[0].graphicalProperties.line.width = _LINE_W_CURRENT
+
+    # Categorias: coluna "Tempo (s)" (col E = índice 5) — numéricas, não timestamps
+    time_ref = Reference(ws_samples, min_col=5, min_row=2, max_row=last_row)
+    c_voltage.set_categories(time_ref)
+
+    # Mesclar os dois charts (voltage recebe current como eixo secundário)
+    c_voltage += c_current
+
+    ws_chart.add_chart(c_voltage, "A1")
 
 
 def generate_excel_report(
@@ -214,11 +293,12 @@ def generate_excel_report(
     ws_summary = wb.active
     ws_summary.title = "Resumo"
     ws_samples = wb.create_sheet("Amostras")
+    ws_chart = wb.create_sheet("Gráfico")
     ws_events = wb.create_sheet("Eventos")
 
     _build_summary_sheet(ws_summary, data, branding, template, context)
-    last_row = _build_samples_sheet(ws_samples, data, branding, context)
-    _add_chart(ws_summary, ws_samples, last_row)
+    last_row = _build_samples_sheet(ws_samples, data, branding)
+    _build_chart_sheet(ws_chart, ws_samples, last_row, data)
 
     events_columns = template["sections"]["events_table"]["columns"]
     event_rows = [[e.timestamp or "", e.level, e.source, e.message] for e in data.events]

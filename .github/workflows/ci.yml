@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [main, "claude/*"]
@@ -12,17 +11,15 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11"]
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-
       - name: Instala dependências
         run: pip install -r requirements.txt
-
       - name: Roda testes (sem GUI — sem display no CI)
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: python -m pytest -m "not gui" -q --tb=short

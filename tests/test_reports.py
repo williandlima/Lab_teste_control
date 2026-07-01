@@ -273,7 +273,8 @@ def test_excel_report_has_separate_sheets_with_numeric_samples(
     path = generate_excel_report(data, branding, tmp_path / "exports")
 
     wb = load_workbook(path)
-    assert wb.sheetnames == ["Resumo", "Amostras", "Eventos"]
+    # Aba "Gráfico" foi adicionada entre Amostras e Eventos (gráfico dual-eixo dedicado).
+    assert wb.sheetnames == ["Resumo", "Amostras", "Gráfico", "Eventos"]
 
     ws = wb["Amostras"]
     # 1 cabeçalho + 5 amostras.
@@ -281,6 +282,10 @@ def test_excel_report_has_separate_sheets_with_numeric_samples(
     # Tensão/corrente gravadas como número real (não texto).
     assert isinstance(ws["C2"].value, (int, float))
     assert isinstance(ws["D2"].value, (int, float))
+    # Coluna E = Tempo(s) como número real, sempre >= 0.
+    assert isinstance(ws["E2"].value, (int, float))
+    assert ws["E2"].value == 0.0  # primeira amostra: t=0
+    assert ws["E6"].value >= 0.0  # última amostra: t > 0
 
 
 def test_generate_reports_without_evaluation_yet(populated_session_id, branding, tmp_path: Path) -> None:
