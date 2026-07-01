@@ -13,11 +13,16 @@ jobs:
         python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v4
+      - name: Instala libs do sistema (PySide6 exige libGL/libEGL no Ubuntu headless)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libglib2.0-0 libfontconfig1 libdbus-1-3
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Instala dependências
+      - name: Instala dependências Python
         run: pip install -r requirements.txt
       - name: Roda testes (sem GUI — sem display no CI)
         env:
