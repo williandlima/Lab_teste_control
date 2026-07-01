@@ -21,7 +21,7 @@ from collections import deque
 from dataclasses import asdict
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from config import AppConfig
 from core.sampling_buffer import Sample, SamplingBuffer
@@ -156,6 +156,23 @@ class _MonitoringPanel(QtWidgets.QWidget):
         status_row.addWidget(self.cycle_label)
         layout.addLayout(status_row)
 
+        # Barra de progresso do ensaio (tempo decorrido / duração configurada).
+        self._test_duration_ms: int = 1
+        self._elapsed_timer = QtCore.QElapsedTimer()
+        self._progress_timer = QtCore.QTimer(self)
+        self._progress_timer.setInterval(250)
+        self._progress_timer.timeout.connect(self._update_progress)
+        self._progress_bar = QtWidgets.QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setTextVisible(False)
+        self._progress_bar.setFixedHeight(6)
+        self._progress_bar.setStyleSheet(
+            "QProgressBar { background: #1A2B4A; border: none; border-radius: 3px; }"
+            "QProgressBar::chunk { background: #FF7A29; border-radius: 3px; }"
+        )
+        layout.addWidget(self._progress_bar)
+
         badges_layout = QtWidgets.QHBoxLayout()
         self.remote_badge = StatusBadge("REMOTO")
         self.output_badge = StatusBadge("SAÍDA")
@@ -202,6 +219,10 @@ class _MonitoringPanel(QtWidgets.QWidget):
         total_steps: int = 1,
         protection_armed: bool = False,
     ) -> None:
+        self._test_duration_ms = max(1, int(duration_s * 1000))
+        self._progress_bar.setValue(0)
+        self._elapsed_timer.restart()
+        self._progress_timer.start()
         self._total_steps = max(1, total_steps)
         self.state_label.setText("Estado: —")
         self.cycle_label.setText(
@@ -231,6 +252,15 @@ class _MonitoringPanel(QtWidgets.QWidget):
         self.output_badge.set_active(
             state in (TestState.APPLYING_VOLTAGE, TestState.STABILIZING, TestState.MONITORING)
         )
+        _terminal = (TestState.COMPLETED, TestState.ABORTED, TestState.COMM_ERROR, TestState.FAULTED)
+        if state in _terminal:
+            self._progress_timer.stop()
+            if state == TestState.COMPLETED:
+                self._progress_bar.setValue(100)
+
+    def _update_progress(self) -> None:
+        pct = min(100, int(self._elapsed_timer.elapsed() * 100 // self._test_duration_ms))
+        self._progress_bar.setValue(pct)
 
     def on_sample(self, sample: Sample) -> None:
         self.voltage_display.set_value(sample.voltage)
@@ -331,12 +361,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log_timer.timeout.connect(self._refresh_log_panel)
         self._log_timer.start(1000)
 
+        # Sombra suave nos painéis QGroupBox dos formulários.
+        for _gb in self.findChildren(QtWidgets.QGroupBox):
+            _sh = QtWidgets.QGraphicsDropShadowEffect(_gb)
+            _sh.setBlurRadius(12)
+            _sh.setOffset(0.0, 3.0)
+            _sh.setColor(QtGui.QColor(0, 0, 0, 70))
+            _gb.setGraphicsEffect(_sh)
+
     def _on_registration_submitted(self, data: dict) -> None:
         self._board = data["board"]
         self._operator = data["operator"]
         self._registration_data = data
         self.parameters_view.set_board(self._board)
-        self.stack.setCurrentWidget(self.parameters_view)
+        self._switch_to(self.parameters_view)
 
     def _on_parameters_back(self) -> None:
         """Volta aos dados de cadastro sem perder nada (edição não-destrutiva).
@@ -345,7 +383,7 @@ class MainWindow(QtWidgets.QMainWindow):
         seguir de novo. A config em si é gravada por upsert no 'Salvar e
         continuar', então voltar e reentrar apenas sobrescreve a mesma config.
         """
-        self.stack.setCurrentWidget(self.registration_view)
+        self._switch_to(self.registration_view)
 
     def _on_parameters_submitted(self, data: dict) -> None:
         config = data["test_parameter_config"]
@@ -427,7 +465,7 @@ class MainWindow(QtWidgets.QMainWindow):
             protection_armed=run_config.ovp_level_v > 0 or run_config.ocp_level_a > 0,
         )
         self.header.test_button.setEnabled(False)  # sem sondar a porta durante o teste
-        self.stack.setCurrentWidget(self.monitoring_panel)
+        self._switch_to(self.monitoring_panel)
         worker.start()
 
     def _persist_samples(self, session_id: int, samples: list[Sample]) -> None:
@@ -558,7 +596,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "• ou marque \"Simulação\" no cabeçalho para rodar sem hardware."
                 + detail,
             )
-            self.stack.setCurrentWidget(self.parameters_view)
+            self._switch_to(self.parameters_view)
             return
 
         # Abortado com "Descartar dados": o operador já decidiu na confirmação
@@ -593,7 +631,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
         self.evaluation_view.load_session(self._session, self._operator, self._state_machine, samples)
-        self.stack.setCurrentWidget(self.evaluation_view)
+        self._switch_to(self.evaluation_view)
 
     def _on_evaluation_submitted(self, data: dict) -> None:
         session: TestSession = data["session"]
@@ -607,7 +645,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._registration_data = None
         self.registration_view.refresh_operator_history()
         self.registration_view.clear_form()
-        self.stack.setCurrentWidget(self.registration_view)
+        self._switch_to(self.registration_view)
 
     def _save_report(self, test_session_id: int) -> None:
         """Salva o relatório do ensaio com diálogo "Salvar como" do Windows.
@@ -653,6 +691,21 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         show_toast(self, f"Relatório salvo em {output_dir}", level="success", duration_ms=4000)
+
+    def _switch_to(self, widget: QtWidgets.QWidget) -> None:
+        """Troca de página com fade-in de 180 ms; sem efeito se já é a página ativa."""
+        if self.stack.currentWidget() is widget:
+            return
+        self._switch_to(widget)
+        effect = QtWidgets.QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        anim = QtCore.QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(180)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+        anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+        anim.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _update_step_indicator(self, index: int) -> None:
         self.step_indicator.set_current(index)

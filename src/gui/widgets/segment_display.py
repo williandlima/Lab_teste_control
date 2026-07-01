@@ -83,3 +83,21 @@ class SegmentDisplay(QtWidgets.QLabel):
         self.setProperty("alarm", alarm)
         self.style().unpolish(self)
         self.style().polish(self)
+        if alarm:
+            self._flash()
+
+    def _flash(self) -> None:
+        """Pisca 3× em 600 ms ao entrar em alarme — chama atenção sem bloquear."""
+        effect = QtWidgets.QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(effect)
+        anim = QtCore.QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(600)
+        anim.setKeyValueAt(0.00, 1.0)
+        anim.setKeyValueAt(0.17, 0.08)
+        anim.setKeyValueAt(0.33, 1.0)
+        anim.setKeyValueAt(0.50, 0.08)
+        anim.setKeyValueAt(0.67, 1.0)
+        anim.setKeyValueAt(1.00, 1.0)
+        # Remove o efeito ao fim para não manter buffer extra em memória.
+        anim.finished.connect(lambda: self.setGraphicsEffect(None))
+        anim.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
