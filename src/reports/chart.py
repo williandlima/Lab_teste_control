@@ -4,8 +4,14 @@ Renderizado com Pillow (sem matplotlib) para não acrescentar dependência
 pesada e funcionar headless. O Excel usa gráfico nativo do openpyxl (ver
 excel_report.py); aqui é só o PNG embutido no documento.
 
-As linhas de tensão mínima/máxima são guias visuais de referência — nunca
-veredito automático (a avaliação PASS/FAIL continua manual).
+Hierarquia visual alinhada ao core do projeto:
+- Corrente: linha GROSSA (2.5px), eixo Y direito em teal — é a grandeza
+  primária que o operador está observando;
+- Tensão: linha FINA (1.5px), eixo Y esquerdo em laranja — é o preset do
+  procedimento, necessário mas não o foco;
+- Limite de corrente (current_max): linha tracejada vermelha — faixa crítica;
+- Referências de tensão (voltage_min/max): linhas tracejadas laranjas — guias
+  de referência, não gatilho automático de reprovação.
 """
 from __future__ import annotations
 
@@ -21,12 +27,16 @@ _W, _H = 960, 420
 _M_LEFT, _M_RIGHT, _M_TOP, _M_BOTTOM = 70, 70, 46, 52
 _MAX_POINTS = 600
 
-_COLOR_VOLTAGE = "#FF7A29"
-_COLOR_CURRENT = "#1F9E91"
-_COLOR_LIMIT = "#E74C3C"
+_COLOR_VOLTAGE = "#FF7A29"   # laranja — tensão (preset)
+_COLOR_CURRENT = "#1F9E91"   # teal — corrente (grandeza primária)
+_COLOR_V_REF   = "#FF7A29"   # limites de tensão: laranja tracejado
+_COLOR_I_LIMIT = "#E74C3C"   # limite de corrente: vermelho tracejado (faixa crítica)
 _COLOR_AXIS = "#444444"
 _COLOR_GRID = "#DDDDDD"
 _COLOR_TEXT = "#222222"
+
+_LINE_W_CURRENT = 3    # corrente: linha grossa (grandeza primária)
+_LINE_W_VOLTAGE = 2    # tensão: linha padrão
 
 
 def _parse_elapsed_seconds(timestamps: list[str]) -> list[float]:
@@ -72,14 +82,16 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
     v_lo_ref, v_hi_ref = cfg.get("voltage_min"), cfg.get("voltage_max")
     i_hi_ref = cfg.get("current_max")
 
-    # Escalas: tensão ancorada nas referências e expandida p/ incluir o observado.
-    v_lo = min([v for v in volts] + ([v_lo_ref] if v_lo_ref is not None else []))
-    v_hi = max([v for v in volts] + ([v_hi_ref] if v_hi_ref is not None else []))
+    # Escala de tensão: ancorada nas referências, expandida para incluir observado.
+    v_lo = min(volts + ([v_lo_ref] if v_lo_ref is not None else []))
+    v_hi = max(volts + ([v_hi_ref] if v_hi_ref is not None else []))
     v_pad = (v_hi - v_lo) * 0.08 or 0.5
     v_lo, v_hi = v_lo - v_pad, v_hi + v_pad
 
-    i_hi = max([a for a in amps] + ([i_hi_ref] if i_hi_ref is not None else [0.0]))
-    i_hi = i_hi * 1.1 or 1.0
+    # Escala de corrente: sempre parte do 0, alcança o máximo observado + 10%
+    # (ou o limite configurado, o que for maior).
+    i_observed_max = max(amps)
+    i_scale_max = max(i_observed_max, i_hi_ref if i_hi_ref is not None else 0.0) * 1.1 or 1.0
     i_lo = 0.0
 
     x_lo, x_hi = (xs[0], xs[-1]) if xs[-1] > xs[0] else (0.0, 1.0)
@@ -98,47 +110,53 @@ def render_samples_chart(data: ReportData, branding: BrandingConfig, output_path
         return plot_b - (v - v_lo) / (v_hi - v_lo) * (plot_b - plot_t)
 
     def py_i(a: float) -> float:
-        return plot_b - (a - i_lo) / (i_hi - i_lo) * (plot_b - plot_t)
+        return plot_b - (a - i_lo) / (i_scale_max - i_lo) * (plot_b - plot_t)
 
-    # Título.
-    draw.text((plot_l, 14), "Tensão e corrente × tempo", fill=_COLOR_TEXT, font=font)
+    # Título — corrente primeiro, refletindo a hierarquia do ensaio.
+    draw.text((plot_l, 14), "Corrente e Tensão × Tempo", fill=_COLOR_TEXT, font=font)
 
-    # Grade horizontal + rótulos dos dois eixos Y (tensão à esquerda, corrente à direita).
+    # Grade horizontal + rótulos: tensão à esquerda (laranja), corrente à direita (teal).
     for v in _nice_ticks(v_lo, v_hi):
         y = py_v(v)
         draw.line([(plot_l, y), (plot_r, y)], fill=_COLOR_GRID)
-        draw.text((6, y - 6), f"{v:.2f}", fill=_COLOR_VOLTAGE, font=font)
-    for a in _nice_ticks(i_lo, i_hi):
+        draw.text((4, y - 6), f"{v:.2f}", fill=_COLOR_VOLTAGE, font=font)
+    for a in _nice_ticks(i_lo, i_scale_max):
         y = py_i(a)
-        draw.text((plot_r + 8, y - 6), f"{a:.2f}", fill=_COLOR_CURRENT, font=font)
+        draw.text((plot_r + 6, y - 6), f"{a:.3f}", fill=_COLOR_CURRENT, font=font)
 
-    # Rótulos do eixo X (tempo).
+    # Rótulos do eixo X (tempo decorrido).
     for tick in _nice_ticks(x_lo, x_hi):
         x = px(tick)
         draw.line([(x, plot_b), (x, plot_b + 4)], fill=_COLOR_AXIS)
         draw.text((x - 10, plot_b + 8), f"{tick:.0f}s", fill=_COLOR_TEXT, font=font)
 
-    # Linhas de referência de tensão (tracejadas).
+    # Linhas de referência de TENSÃO (laranja tracejado) — guias, não veredito.
     for ref in (v_lo_ref, v_hi_ref):
         if ref is None:
             continue
         y = py_v(ref)
         for seg in range(plot_l, plot_r, 12):
-            draw.line([(seg, y), (min(seg + 6, plot_r), y)], fill=_COLOR_LIMIT)
+            draw.line([(seg, y), (min(seg + 6, plot_r), y)], fill=_COLOR_V_REF)
+
+    # Linha de limite de CORRENTE (vermelho tracejado) — faixa crítica.
+    if i_hi_ref is not None:
+        y = py_i(i_hi_ref)
+        for seg in range(plot_l, plot_r, 12):
+            draw.line([(seg, y), (min(seg + 6, plot_r), y)], fill=_COLOR_I_LIMIT)
 
     # Moldura.
     draw.rectangle([plot_l, plot_t, plot_r, plot_b], outline=_COLOR_AXIS)
 
-    # Séries.
+    # Séries: corrente primeiro (mais importante → ocorre por cima da tensão).
     v_points = [(px(xs[i]), py_v(volts[i])) for i in range(len(samples))]
     i_points = [(px(xs[i]), py_i(amps[i])) for i in range(len(samples))]
     if len(v_points) > 1:
-        draw.line(v_points, fill=_COLOR_VOLTAGE, width=2)
-        draw.line(i_points, fill=_COLOR_CURRENT, width=2)
+        draw.line(v_points, fill=_COLOR_VOLTAGE, width=_LINE_W_VOLTAGE)
+        draw.line(i_points, fill=_COLOR_CURRENT, width=_LINE_W_CURRENT)
 
-    # Legenda.
-    draw.text((plot_r - 150, 14), "■ Tensão (V)", fill=_COLOR_VOLTAGE, font=font)
-    draw.text((plot_r - 70, 14), "■ Corrente (A)", fill=_COLOR_CURRENT, font=font)
+    # Legenda — corrente primeiro, tensão depois, consistente com a hierarquia.
+    draw.text((plot_r - 200, 14), "■ Corrente (A)", fill=_COLOR_CURRENT, font=font)
+    draw.text((plot_r - 90,  14), "■ Tensão (V)",   fill=_COLOR_VOLTAGE, font=font)
 
     output_path = Path(output_path)
     img.save(output_path, "PNG")

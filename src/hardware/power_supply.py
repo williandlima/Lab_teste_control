@@ -27,12 +27,43 @@ class PowerSupplyE363x(BaseSerialInstrument):
         sequência de comandos que bipam um a um. Só com a identidade
         confirmada é que `SYSTem:REMote` é enviado (obrigatório antes dos
         demais comandos — seção 9.2) e a fila de erros é limpa.
+
+        Efeito colateral: também força OUTPUT OFF e limpa qualquer latch de
+        OVP/OCP residual (ver `_reset_residual_state`) — chamar `connect()`/
+        `reconnect()` NÃO é neutro em relação ao estado de saída/proteção da
+        fonte.
         """
         identity = self._transport.probe_identity()
         _logger.info("Fonte identificada: %s", identity)
         self.scpi.write("SYSTem:REMote")
         self.scpi.clear_status()
         self.scpi.check_error()
+        self._reset_residual_state()
+
+    def _reset_residual_state(self) -> None:
+        """Garante estado limpo a cada nova conexão (início de cada ensaio).
+
+        Sem isto, se o ensaio anterior terminou com um latch de OVP/OCP
+        disparado, a fonte mantém a saída travada em hardware mesmo depois
+        que o novo ensaio manda `OUTPut:STATe ON` — o operador vê leituras
+        de tensão/corrente bem abaixo do setpoint recém-aplicado (ex.: ~0 V
+        com 12 V configurado). Cada etapa é best-effort e não interrompe a
+        conexão: um erro aqui não pode impedir o ensaio de começar.
+        """
+        try:
+            self.output_off()
+        except InstrumentCommunicationError as exc:
+            _logger.warning("Falha ao garantir saída desligada na conexão: %s", exc)
+        for is_tripped, clear, name in (
+            (self.is_overvoltage_protection_tripped, self.clear_overvoltage_protection, "OVP"),
+            (self.is_overcurrent_protection_tripped, self.clear_overcurrent_protection, "OCP"),
+        ):
+            try:
+                if is_tripped():
+                    _logger.info("Latch de %s de uma sessão anterior detectado — limpando.", name)
+                    clear()
+            except InstrumentCommunicationError as exc:
+                _logger.warning("Falha ao verificar/limpar latch de %s na conexão: %s", name, exc)
 
     def on_disconnecting(self) -> None:
         """Failsafe: tenta desligar a saída antes de fechar a porta.
@@ -114,9 +145,15 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.check_error()
 
     def clear_overvoltage_protection(self) -> None:
+        # Reativa a proteção (mesmo nível de antes) após limpar o latch: só
+        # dispara porque estava ARMADA, então restaurar o STATe é o que
+        # realmente preserva "o próprio default da fonte" — deixar OFF
+        # desarmaria uma proteção que o operador nunca pediu para desligar.
         self.scpi.write("VOLTage:PROTection:STATe OFF")
         self.scpi.wait_complete()
         self.scpi.write("VOLTage:PROTection:CLEar")
+        self.scpi.wait_complete()
+        self.scpi.write("VOLTage:PROTection:STATe ON")
         self.scpi.check_error()
 
     def is_overvoltage_protection_tripped(self) -> bool:
@@ -138,9 +175,13 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.check_error()
 
     def clear_overcurrent_protection(self) -> None:
+        # Mesmo raciocínio de clear_overvoltage_protection(): restaura o
+        # STATe após limpar o latch em vez de deixar a proteção desarmada.
         self.scpi.write("CURRent:PROTection:STATe OFF")
         self.scpi.wait_complete()
         self.scpi.write("CURRent:PROTection:CLEar")
+        self.scpi.wait_complete()
+        self.scpi.write("CURRent:PROTection:STATe ON")
         self.scpi.check_error()
 
     def is_overcurrent_protection_tripped(self) -> bool:

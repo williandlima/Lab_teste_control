@@ -216,6 +216,47 @@ QLabel#segmentDisplay[alarm="true"] {
     border: 2px solid {{COLOR_FAIL}};
 }
 
+/* Corrente: grandeza primária — teal destacado, borda mais espessa. */
+QLabel#segmentDisplayCurrent {
+    background-color: #041A18;
+    color: #1F9E91;
+    border: 3px solid #1F9E91;
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+QLabel#segmentDisplayCurrent[alarm="true"] {
+    color: {{COLOR_FAIL}};
+    border: 3px solid {{COLOR_FAIL}};
+}
+
+/* Tensão: preset de procedimento — laranja discreto, borda fina. */
+QLabel#segmentDisplayVoltage {
+    background-color: #06101F;
+    color: {{ORANGE_ACCENT}};
+    border: 1px solid #2A3A5A;
+    border-radius: 8px;
+    padding: 4px 12px;
+}
+
+QLabel#segmentDisplayVoltage[alarm="true"] {
+    color: {{COLOR_FAIL}};
+    border: 1px solid {{COLOR_FAIL}};
+}
+
+/* Rótulos das leituras ao vivo */
+QLabel[displayRole="primary"] {
+    color: #1F9E91;
+    font-weight: bold;
+    font-size: 8pt;
+    letter-spacing: 2px;
+}
+
+QLabel[displayRole="secondary"] {
+    color: #5A7090;
+    font-size: 8pt;
+}
+
 /* Badges de status - ver gui/widgets/status_badge.py */
 QLabel[statusBadge="true"] {
     border-radius: 10px;

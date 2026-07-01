@@ -39,7 +39,13 @@ def _load_segment_font_family() -> str | None:
 class SegmentDisplay(QtWidgets.QLabel):
     """Mostra um valor numérico com unidade, estilo display de 7 segmentos."""
 
-    def __init__(self, unit: str, decimals: int = 3, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        unit: str,
+        decimals: int = 3,
+        font_size: int = 28,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._unit = unit
         self._decimals = decimals
@@ -53,7 +59,7 @@ class SegmentDisplay(QtWidgets.QLabel):
         family = _load_segment_font_family()
         font = QtGui.QFont(family if family else "Consolas")
         font.setStyleHint(QtGui.QFont.Monospace)
-        font.setPointSize(28)
+        font.setPointSize(font_size)
         if family is None:
             font.setLetterSpacing(QtGui.QFont.PercentageSpacing, 110)
         self.setFont(font)
@@ -83,3 +89,21 @@ class SegmentDisplay(QtWidgets.QLabel):
         self.setProperty("alarm", alarm)
         self.style().unpolish(self)
         self.style().polish(self)
+        if alarm:
+            self._flash()
+
+    def _flash(self) -> None:
+        """Pisca 3× em 600 ms ao entrar em alarme — chama atenção sem bloquear."""
+        effect = QtWidgets.QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(effect)
+        anim = QtCore.QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(600)
+        anim.setKeyValueAt(0.00, 1.0)
+        anim.setKeyValueAt(0.17, 0.08)
+        anim.setKeyValueAt(0.33, 1.0)
+        anim.setKeyValueAt(0.50, 0.08)
+        anim.setKeyValueAt(0.67, 1.0)
+        anim.setKeyValueAt(1.00, 1.0)
+        # Remove o efeito ao fim para não manter buffer extra em memória.
+        anim.finished.connect(lambda: self.setGraphicsEffect(None))
+        anim.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)

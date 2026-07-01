@@ -160,8 +160,8 @@ def test_configure_source_arms_protection_at_operator_defined_levels() -> None:
 
     sm.run()
 
-    instrument.set_overvoltage_protection.assert_called_once_with(13.5)
-    instrument.set_overcurrent_protection.assert_called_once_with(2.2)
+    instrument.set_overvoltage_protection.assert_called_once_with(13.5, clear_latch=False)
+    instrument.set_overcurrent_protection.assert_called_once_with(2.2, clear_latch=False)
 
 
 def test_monitor_resyncs_buffer_after_read_failure() -> None:

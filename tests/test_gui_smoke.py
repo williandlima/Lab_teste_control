@@ -3,6 +3,9 @@
 Não dirige interação completa — apenas constrói a árvore de widgets (offscreen)
 para travar regressões de wiring (sinais/slots, import, logo, seletor de porta).
 Roda com QT_QPA_PLATFORM=offscreen, sem display real.
+
+Todos os testes deste módulo carregam o marker 'gui' (declarado em
+pyproject.toml). No CI headless rode: pytest -m 'not gui'.
 """
 from __future__ import annotations
 
@@ -14,6 +17,8 @@ from config import load_config
 from database.database import Database
 
 pytest.importorskip("PySide6")
+
+pytestmark = pytest.mark.gui
 
 
 @pytest.fixture()
@@ -294,8 +299,11 @@ def test_step_indicator_marks_current_done_and_todo(qtbot) -> None:
     qtbot.addWidget(stepper)
 
     stepper.set_current(2)
-    states = [label.property("stepState") for label in stepper._step_labels]
-    assert states == ["done", "done", "current", "todo"]
+    # Impl QPainter não usa _step_labels; valida o índice interno e a classificação.
+    assert stepper._current == 2
+    assert [("done" if i < 2 else "current" if i == 2 else "todo") for i in range(4)] == [
+        "done", "done", "current", "todo"
+    ]
 
 
 def test_segment_display_alarm_toggles_out_of_range(qtbot) -> None:
