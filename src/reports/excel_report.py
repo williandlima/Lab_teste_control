@@ -55,6 +55,16 @@ def _hex_fill(hex_color: str) -> PatternFill:
     return PatternFill(start_color=h, end_color=h, fill_type="solid")
 
 
+def _configure_print(ws: Worksheet, landscape: bool = False, repeat_header_row: bool = False) -> None:
+    """Ajusta a página para impressão: cabe na largura, sem colunas cortadas."""
+    ws.page_setup.orientation = "landscape" if landscape else "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    if repeat_header_row:
+        ws.print_title_rows = "1:1"
+
+
 def _voltage_reference_limits(data: ReportData) -> tuple[float, float] | None:
     """(v_min, v_max) configurados para as linhas-guia do gráfico, ou None se ausentes.
 
@@ -189,7 +199,7 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
     """
     limits = _voltage_reference_limits(data)
 
-    columns = ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)", "Tempo (s)"]
+    columns = ["Timestamp", "Ciclo", "Tensão (V)", "Corrente (A)", "Tempo (s)"]
     if limits is not None:
         columns += ["V mín (ref.)", "V máx (ref.)"]
     for col_idx, header in enumerate(columns, start=1):
@@ -208,7 +218,7 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
             elapsed = round((ts_val - first_dt).total_seconds(), 2)
         else:
             elapsed = float(i - 2)  # fallback: usa índice quando timestamp não parseia
-        ws.cell(row=i, column=2, value=s.step_index)
+        ws.cell(row=i, column=2, value=s.step_index + 1)
         ws.cell(row=i, column=3, value=round(s.voltage_measured, 4))
         ws.cell(row=i, column=4, value=round(s.current_measured, 4))
         ws.cell(row=i, column=5, value=elapsed)
@@ -346,6 +356,8 @@ def generate_excel_report(
     ws_samples = wb.create_sheet("Amostras")
     ws_chart = wb.create_sheet("Gráfico")
     ws_events = wb.create_sheet("Eventos")
+    # Aba do gráfico em teal — mesma cor da corrente, a grandeza primária.
+    ws_chart.sheet_properties.tabColor = _HEX_CURRENT
 
     _build_summary_sheet(ws_summary, data, branding, template, context)
     last_row = _build_samples_sheet(ws_samples, data, branding)
@@ -357,6 +369,11 @@ def generate_excel_report(
     ws_events.column_dimensions["A"].width = 24
     ws_events.column_dimensions["D"].width = 60
     ws_events.freeze_panes = "A2"
+
+    _configure_print(ws_summary, landscape=False, repeat_header_row=False)
+    _configure_print(ws_samples, landscape=True, repeat_header_row=True)
+    _configure_print(ws_chart, landscape=True, repeat_header_row=False)
+    _configure_print(ws_events, landscape=True, repeat_header_row=True)
 
     footer_cell = ws_summary.cell(row=ws_summary.max_row + 2, column=1, value=template["footer"].format(**context))
     footer_cell.font = Font(italic=True, size=9)

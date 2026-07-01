@@ -61,17 +61,18 @@ sections:
     columns:
       - "Ciclo"
       - "Amostras"
+      - "Corrente méd. (A)"
+      - "Corrente desv. (A)"
+      - "Corrente mín/máx (A)"
       - "Tensão méd. (V)"
       - "Tensão desv. (V)"
       - "Tensão mín/máx (V)"
-      - "Corrente méd. (A)"
-      - "Corrente mín/máx (A)"
-      - "V fora da faixa"
       - "I acima do limite"
+      - "V fora da faixa"
 
   samples_table:
     heading: "Amostras (resumo)"
-    columns: ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)"]
+    columns: ["Timestamp", "Ciclo", "Corrente (A)", "Tensão (V)"]
     max_rows: 200
 
   events_table:
@@ -83,4 +84,4 @@ result_colors:
   REJECTED: "color_fail"
   OBSERVATION: "color_warning"
 
-footer: "Gerado automaticamente pelo sistema FCT — {company_name}"
+footer: "Gerado automaticamente pelo sistema FCT — {company_name} — {generated_at}"
