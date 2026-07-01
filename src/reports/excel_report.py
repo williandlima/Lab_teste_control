@@ -55,6 +55,23 @@ def _hex_fill(hex_color: str) -> PatternFill:
     return PatternFill(start_color=h, end_color=h, fill_type="solid")
 
 
+def _voltage_reference_limits(data: ReportData) -> tuple[float, float] | None:
+    """(v_min, v_max) configurados para as linhas-guia do gráfico, ou None se ausentes.
+
+    Fonte única de verdade: `_build_samples_sheet` (colunas F/G) e
+    `_build_chart_sheet` (linhas-guia tracejadas) chamam esta função — sem
+    isso, cada uma reavaliava a mesma condição de forma independente, e uma
+    diferença futura entre elas faria o gráfico referenciar colunas nunca
+    escritas (ou vice-versa) sem erro nenhum.
+    """
+    cfg = data.config_snapshot
+    v_lo = cfg.get("voltage_min")
+    v_hi = cfg.get("voltage_max")
+    if v_lo is None or v_hi is None:
+        return None
+    return v_lo, v_hi
+
+
 def _write_heading(ws: Worksheet, row: int, text: str, branding: BrandingConfig, span: int = 2) -> int:
     cell = ws.cell(row=row, column=1, value=text)
     cell.font = Font(bold=True, color=branding.color_text_on_navy.lstrip("#"), size=12)
@@ -170,12 +187,10 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
     em toda linha — servem só de fonte para as linhas-guia tracejadas do
     gráfico dual-eixo, replicando o LiveChart do ensaio (seção 11.1).
     """
-    cfg = data.config_snapshot
-    v_lo_ref = cfg.get("voltage_min")
-    v_hi_ref = cfg.get("voltage_max")
+    limits = _voltage_reference_limits(data)
 
     columns = ["Timestamp", "Passo", "Tensão (V)", "Corrente (A)", "Tempo (s)"]
-    if v_lo_ref is not None and v_hi_ref is not None:
+    if limits is not None:
         columns += ["V mín (ref.)", "V máx (ref.)"]
     for col_idx, header in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=header)
@@ -197,15 +212,18 @@ def _build_samples_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
         ws.cell(row=i, column=3, value=round(s.voltage_measured, 4))
         ws.cell(row=i, column=4, value=round(s.current_measured, 4))
         ws.cell(row=i, column=5, value=elapsed)
-        if v_lo_ref is not None and v_hi_ref is not None:
-            ws.cell(row=i, column=6, value=v_lo_ref)
-            ws.cell(row=i, column=7, value=v_hi_ref)
+        if limits is not None:
+            ws.cell(row=i, column=6, value=limits[0])
+            ws.cell(row=i, column=7, value=limits[1])
 
     last_row = len(data.samples) + 1
     ws.column_dimensions["A"].width = 24
     for col in ("B", "C", "D"):
         ws.column_dimensions[col].width = 14
     ws.column_dimensions["E"].width = 12
+    if limits is not None:
+        ws.column_dimensions["F"].width = 14
+        ws.column_dimensions["G"].width = 14
     ws.freeze_panes = "A2"
     if last_row >= 1:
         ws.auto_filter.ref = f"A1:E{max(last_row, 1)}"
@@ -238,10 +256,8 @@ def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int
     if last_row < 2:
         return
 
-    cfg = data.config_snapshot
-    v_lo_ref = cfg.get("voltage_min")
-    v_hi_ref = cfg.get("voltage_max")
-    i_hi_ref = cfg.get("current_max")
+    limits = _voltage_reference_limits(data)
+    i_hi_ref = data.config_snapshot.get("current_max")
 
     # -- Chart primário: Tensão no eixo Y esquerdo --
     c_voltage = LineChart()
@@ -261,7 +277,8 @@ def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int
     c_voltage.x_axis.title = "Tempo (s)"
     c_voltage.x_axis.numFmt = '0"s"'
 
-    if v_lo_ref is not None and v_hi_ref is not None:
+    if limits is not None:
+        v_lo_ref, v_hi_ref = limits
         margin = max(0.5, (v_hi_ref - v_lo_ref) * 0.2)
         c_voltage.y_axis.scaling.min = round(v_lo_ref - margin, 2)
         c_voltage.y_axis.scaling.max = round(v_hi_ref + margin, 2)
@@ -275,10 +292,13 @@ def _build_chart_sheet(ws_chart: Worksheet, ws_samples: Worksheet, last_row: int
     # Linhas-guia tracejadas de V mín/máx (colunas F/G) — mesma referência
     # visual do LiveChart do ensaio (linha vermelha tracejada), nunca um
     # veredito automático.
-    if v_lo_ref is not None and v_hi_ref is not None:
+    if limits is not None:
         limit_ref = Reference(ws_samples, min_col=6, max_col=7, min_row=1, max_row=last_row)
+        series_before = len(c_voltage.series)
         c_voltage.add_data(limit_ref, titles_from_data=True)
-        for limit_series in c_voltage.series[1:3]:
+        # Captura pelas séries recém-adicionadas (não por índice fixo): robusto
+        # a qualquer add_data() futuro inserido antes deste bloco.
+        for limit_series in c_voltage.series[series_before:]:
             limit_series.graphicalProperties.line.solidFill = _HEX_LIMIT
             limit_series.graphicalProperties.line.width = 12700  # 1 pt
             limit_series.graphicalProperties.line.dashStyle = "dash"
