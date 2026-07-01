@@ -121,6 +121,7 @@ class LiveChart(QtWidgets.QWidget):
         self._t0: float | None = None
         self._y_min: float = 0.0
         self._y_max: float = 10.0
+        self._i_observed_max: float = 0.0
 
     def set_voltage_limits(
         self,
@@ -147,6 +148,13 @@ class LiveChart(QtWidgets.QWidget):
         self._axis_voltage.setTickCount(8)
 
     def set_current_range(self, current_max: float) -> None:
+        # `current_max` é o limite de proteção (OCP), não a corrente esperada
+        # do ensaio — usá-lo como escala fixa do eixo deixa a curva real
+        # espremida perto de zero quando a corrente do DUT é bem menor que o
+        # limite (ex.: limite 1,2 A, corrente real 0,03 A). Serve só como
+        # escala inicial antes da 1ª amostra; `update_samples` reajusta o
+        # eixo à corrente realmente observada.
+        self._i_observed_max = 0.0
         self._axis_current.setRange(0, max(current_max * 1.2, 0.1))
         self._axis_current.setTickCount(8)
 
@@ -174,7 +182,21 @@ class LiveChart(QtWidgets.QWidget):
         if expand:
             self._axis_voltage.setRange(self._y_min, self._y_max)
 
+        # A corrente é a grandeza mais importante do monitoramento (a tensão
+        # é apenas um preset do procedimento) — o eixo precisa acompanhar a
+        # corrente REAL observada, não ficar preso à escala do limite de
+        # proteção (que costuma ser muito maior que a corrente do DUT).
+        i_vals = [s.current for s in samples]
+        batch_max = max(i_vals)
+        if batch_max > self._i_observed_max:
+            self._i_observed_max = batch_max
+        target_hi = max(self._i_observed_max * 1.3, 0.05)
+        current_hi = self._axis_current.max()
+        if current_hi <= 0 or abs(target_hi - current_hi) / current_hi > 0.15:
+            self._axis_current.setRange(0, target_hi)
+
     def clear(self) -> None:
         self._t0 = None
+        self._i_observed_max = 0.0
         self._voltage_series.clear()
         self._current_series.clear()
