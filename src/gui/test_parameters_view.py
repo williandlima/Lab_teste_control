@@ -10,9 +10,16 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from config import VoltageRange
 from core.state_machine import TestRunConfig
 from database.models import Board, PowerStep, TestParameterConfig
 from database.repositories import TestParameterConfigRepository
+from gui.widgets.range_feedback import (
+    RangeFitState,
+    apply_spin_feedback,
+    apply_table_item_feedback,
+    evaluate_range_fit,
+)
 
 
 class TestParametersView(QtWidgets.QWidget):
@@ -25,11 +32,13 @@ class TestParametersView(QtWidgets.QWidget):
         self,
         config_repo: TestParameterConfigRepository,
         test_defaults: dict,
+        ranges: tuple[VoltageRange, ...] = (),
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._config_repo = config_repo
         self._test_defaults = test_defaults
+        self._ranges = ranges
         self._board: Board | None = None
 
         title_label = QtWidgets.QLabel("Parâmetros do ensaio")
@@ -83,13 +92,40 @@ class TestParametersView(QtWidgets.QWidget):
         duration_row_layout.addWidget(self.test_duration_spin, stretch=1)
         duration_row_layout.addWidget(self.duration_unit_combo)
 
+        # Faixa da fonte: "Automática" (padrão/recomendado) deixa o driver
+        # escolher a faixa mais "justa" a cada passo (ver
+        # PowerSupplyE363x._ensure_range); escolher uma faixa nomeada trava
+        # o ensaio INTEIRO nela — se um passo não couber, falha com erro
+        # acionável em vez de trocar de faixa sozinho.
+        self.range_combo = QtWidgets.QComboBox()
+        self.range_combo.addItem("Automática (recomendado)", userData=None)
+        for voltage_range in self._ranges:
+            self.range_combo.addItem(
+                f"{voltage_range.name} — até {voltage_range.max_voltage:.2f} V / "
+                f"{voltage_range.max_current:.3f} A",
+                userData=voltage_range.name,
+            )
+        self.range_combo.setEnabled(bool(self._ranges))
+
         limits_form.addRow("Nome da configuração:", self.config_name_edit)
         limits_form.addRow("Tensão nominal:", self.nominal_voltage_spin)
         limits_form.addRow("Tensão mínima (referência):", self.voltage_min_spin)
         limits_form.addRow("Tensão máxima (referência):", self.voltage_max_spin)
         limits_form.addRow("Corrente máxima:", self.current_max_spin)
+        limits_form.addRow("Faixa da fonte:", self.range_combo)
         limits_form.addRow("Duração do teste (passo único):", duration_row)
         form_layout.addWidget(limits_group)
+
+        self.range_warning_label = QtWidgets.QLabel()
+        self.range_warning_label.setWordWrap(True)
+        self.range_warning_label.setObjectName("rangeWarningLabel")
+        self.range_warning_label.setVisible(False)
+        form_layout.addWidget(self.range_warning_label)
+
+        self.nominal_voltage_spin.valueChanged.connect(self._update_single_step_range_feedback)
+        self.current_max_spin.valueChanged.connect(self._update_single_step_range_feedback)
+        self.range_combo.currentIndexChanged.connect(self._update_single_step_range_feedback)
+        self.range_combo.currentIndexChanged.connect(self._update_all_row_range_feedback)
 
         advanced_group = QtWidgets.QGroupBox("Parâmetros avançados de monitoramento")
         advanced_form = QtWidgets.QFormLayout(advanced_group)
@@ -130,6 +166,7 @@ class TestParametersView(QtWidgets.QWidget):
         self.sequence_table = QtWidgets.QTableWidget(0, len(self._COLUMN_LABELS))
         self.sequence_table.setHorizontalHeaderLabels(self._COLUMN_LABELS)
         self.sequence_table.horizontalHeader().setStretchLastSection(True)
+        self.sequence_table.itemChanged.connect(self._on_sequence_item_changed)
         sequence_layout.addWidget(self.sequence_table)
 
         sequence_buttons = QtWidgets.QHBoxLayout()
@@ -155,6 +192,7 @@ class TestParametersView(QtWidgets.QWidget):
         form_layout.addStretch()
 
         self._refresh_duration_unit()
+        self._update_single_step_range_feedback()
 
     # -- unidade de tempo (s/min/h) -----------------------------------------
 
@@ -222,12 +260,19 @@ class TestParametersView(QtWidgets.QWidget):
         self.voltage_min_spin.setValue(config.voltage_min)
         self.voltage_max_spin.setValue(config.voltage_max)
         self.current_max_spin.setValue(config.current_max)
+        range_index = self.range_combo.findData(config.range_mode)
+        self.range_combo.setCurrentIndex(range_index if range_index >= 0 else 0)
         # Config guarda segundos; converte para a unidade exibida no momento.
         factor = self._duration_factor
         self.test_duration_spin.setValue(config.test_duration_s / factor)
         self.sequence_table.setRowCount(0)
         for step in config.power_sequence:
             self._append_step_row(step.voltage, step.current, step.duration_s / factor)
+        # setCurrentIndex() só emite currentIndexChanged se o índice mudou; força
+        # a atualização do feedback mesmo quando a faixa carregada é a mesma que
+        # já estava selecionada (ex.: "Automática" nos dois casos).
+        self._update_single_step_range_feedback()
+        self._update_all_row_range_feedback()
 
     def _on_add_step(self) -> None:
         self._append_step_row(
@@ -242,6 +287,48 @@ class TestParametersView(QtWidgets.QWidget):
         self.sequence_table.insertRow(row)
         for column, value in enumerate((voltage, current, duration)):
             self.sequence_table.setItem(row, column, QtWidgets.QTableWidgetItem(str(value)))
+        self._update_row_range_feedback(row)
+
+    # -- faixa V/A ------------------------------------------------------------
+
+    def _update_single_step_range_feedback(self) -> None:
+        """Colore Tensão nominal/Corrente máxima ANTES do -222 do instrumento
+        -- usados quando não há sequência multi-step (ver TestRunConfig.steps())."""
+        result = evaluate_range_fit(
+            self.nominal_voltage_spin.value(),
+            self.current_max_spin.value(),
+            self._ranges,
+            self.range_combo.currentData(),
+        )
+        apply_spin_feedback(self.nominal_voltage_spin, result)
+        apply_spin_feedback(self.current_max_spin, result)
+        self.range_warning_label.setText(result.message)
+        self.range_warning_label.setVisible(result.state is not RangeFitState.OK)
+
+    def _on_sequence_item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
+        if item.column() in (0, 1):  # tensão/corrente -- duração (2) não afeta faixa
+            self._update_row_range_feedback(item.row())
+
+    def _update_row_range_feedback(self, row: int) -> None:
+        voltage_item = self.sequence_table.item(row, 0)
+        current_item = self.sequence_table.item(row, 1)
+        if voltage_item is None or current_item is None:
+            return  # linha ainda sendo montada por _append_step_row
+        try:
+            voltage = float(voltage_item.text())
+            current = float(current_item.text())
+        except ValueError:
+            return  # célula em edição/inválida -- validado de verdade em _read_power_sequence
+        result = evaluate_range_fit(voltage, current, self._ranges, self.range_combo.currentData())
+        # setBackground()/setToolTip() disparam itemChanged de novo -- sem
+        # bloquear, cada edição de célula reentraria aqui indefinidamente.
+        with QtCore.QSignalBlocker(self.sequence_table):
+            apply_table_item_feedback(voltage_item, result)
+            apply_table_item_feedback(current_item, result)
+
+    def _update_all_row_range_feedback(self) -> None:
+        for row in range(self.sequence_table.rowCount()):
+            self._update_row_range_feedback(row)
 
     def _on_remove_step(self) -> None:
         row = self.sequence_table.currentRow()
@@ -285,6 +372,22 @@ class TestParametersView(QtWidgets.QWidget):
         if power_sequence is None:
             return
 
+        range_mode = self.range_combo.currentData()
+        # Bloqueia ANTES de gravar/aplicar -- descobrir só com o -222 do
+        # instrumento (ou pior, no meio de um ensaio já em andamento) é
+        # exatamente o que o feedback visual em tempo real tenta evitar.
+        effective_steps = power_sequence or [
+            PowerStep(self.nominal_voltage_spin.value(), self.current_max_spin.value(), 0.0)
+        ]
+        for index, step in enumerate(effective_steps, start=1):
+            result = evaluate_range_fit(step.voltage, step.current, self._ranges, range_mode)
+            if result.state is not RangeFitState.OK:
+                where = f"Passo {index} da sequência" if power_sequence else "Tensão nominal/Corrente máxima"
+                QtWidgets.QMessageBox.warning(
+                    self, "Faixa V/A inválida", f"{where}: {result.message}"
+                )
+                return
+
         config = TestParameterConfig(
             id=None,
             board_id=self._board.id,
@@ -295,6 +398,7 @@ class TestParametersView(QtWidgets.QWidget):
             current_max=self.current_max_spin.value(),
             test_duration_s=self.test_duration_spin.value() * self._duration_factor,
             power_sequence=power_sequence,
+            range_mode=range_mode,
         )
         saved_config = self._config_repo.save(config)
         self.refresh_history()
@@ -313,6 +417,7 @@ class TestParametersView(QtWidgets.QWidget):
             capture_interval_s=self.capture_interval_spin.value(),
             ovp_level_v=self.ovp_level_spin.value(),
             ocp_level_a=self.ocp_level_spin.value(),
+            range_mode=saved_config.range_mode,
         )
 
         self.parameters_submitted.emit(

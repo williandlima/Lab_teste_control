@@ -70,6 +70,30 @@ def test_test_parameter_config_roundtrips_power_sequence(db: Database) -> None:
     fetched = repo.get(created.id)
     assert fetched.power_sequence == [PowerStep(5.0, 1.0, 10.0), PowerStep(12.0, 2.0, 50.0)]
     assert repo.list_for_board(board.id) == [fetched]
+    assert fetched.range_mode is None  # não informado -- default é seleção automática
+
+
+def test_test_parameter_config_roundtrips_forced_range_mode(db: Database) -> None:
+    """O operador pode travar a faixa V/A do preset (ver TestParametersView) --
+    precisa sobreviver a salvar/recarregar, senão a escolha se perde a cada sessão."""
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    repo = TestParameterConfigRepository(db)
+    created = repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Fixo em HIGH",
+            nominal_voltage=30.0,
+            voltage_min=29.5,
+            voltage_max=30.5,
+            current_max=2.0,
+            test_duration_s=60.0,
+            power_sequence=[],
+            range_mode="HIGH",
+        )
+    )
+    fetched = repo.get(created.id)
+    assert fetched.range_mode == "HIGH"
 
 
 def test_test_parameter_config_save_overwrites_same_name_instead_of_duplicating(

@@ -27,6 +27,11 @@ from typing import Callable
 from PySide6 import QtCore, QtWidgets
 
 from drivers.exceptions import InstrumentCommunicationError
+from gui.widgets.range_feedback import (
+    RangeFitState,
+    apply_spin_feedback,
+    evaluate_range_fit,
+)
 from gui.widgets.segment_display import SegmentDisplay
 from hardware.power_supply import PowerSupplyE363x
 
@@ -127,7 +132,32 @@ class ManualOutputDialog(QtWidgets.QDialog):
         self.current_spin.setValue(default_current)
         setpoint_form.addRow("Tensão:", self.voltage_spin)
         setpoint_form.addRow("Corrente (limite):", self.current_spin)
+
+        # Faixa da fonte: "Automática" (padrão/recomendado) deixa o driver
+        # escolher a faixa mais "justa" que cabe no setpoint (ver
+        # PowerSupplyE363x._ensure_range); escolher uma faixa nomeada trava
+        # nela — o operador assume o risco de -222 se o setpoint não couber.
+        self.range_combo = QtWidgets.QComboBox()
+        self.range_combo.addItem("Automática (recomendado)", userData=None)
+        for voltage_range in instrument.ranges:
+            self.range_combo.addItem(
+                f"{voltage_range.name} — até {voltage_range.max_voltage:.2f} V / "
+                f"{voltage_range.max_current:.3f} A",
+                userData=voltage_range.name,
+            )
+        self.range_combo.setEnabled(bool(instrument.ranges))
+        setpoint_form.addRow("Faixa da fonte:", self.range_combo)
         layout.addWidget(setpoint_group)
+
+        self.range_warning_label = QtWidgets.QLabel()
+        self.range_warning_label.setWordWrap(True)
+        self.range_warning_label.setObjectName("rangeWarningLabel")
+        self.range_warning_label.setVisible(False)
+        layout.addWidget(self.range_warning_label)
+
+        self.voltage_spin.valueChanged.connect(self._update_range_feedback)
+        self.current_spin.valueChanged.connect(self._update_range_feedback)
+        self.range_combo.currentIndexChanged.connect(self._update_range_feedback)
 
         readouts = QtWidgets.QHBoxLayout()
         self.voltage_display = SegmentDisplay(unit="V", decimals=3)
@@ -154,13 +184,40 @@ class ManualOutputDialog(QtWidgets.QDialog):
         buttons.addWidget(self.close_button)
         layout.addLayout(buttons)
 
+        self._range_ok = True
+        self._update_range_feedback()
+
+    # -- faixa V/A ------------------------------------------------------------
+
+    def _update_range_feedback(self) -> None:
+        """Colore os campos e trava "Ligar saída" ANTES do -222 do instrumento.
+
+        Roda a cada mudança de tensão/corrente/faixa escolhida — replica
+        exatamente a checagem que `PowerSupplyE363x._ensure_range` faria,
+        sem I/O, então o operador vê o problema ao digitar, não ao clicar.
+        """
+        voltage = self.voltage_spin.value()
+        current = self.current_spin.value()
+        forced_range_name = self.range_combo.currentData()
+        result = evaluate_range_fit(voltage, current, self._instrument.ranges, forced_range_name)
+        apply_spin_feedback(self.voltage_spin, result)
+        apply_spin_feedback(self.current_spin, result)
+        self._range_ok = result.state is RangeFitState.OK
+        self.range_warning_label.setText(result.message)
+        self.range_warning_label.setVisible(result.state is not RangeFitState.OK)
+        self._refresh_on_button_enabled()
+
+    def _refresh_on_button_enabled(self) -> None:
+        self.on_button.setEnabled(self._range_ok and not self._busy and not self._output_on)
+
     # -- ligar/desligar -----------------------------------------------------
 
     def _on_turn_on(self) -> None:
-        if self._busy or self._output_on:
+        if self._busy or self._output_on or not self._range_ok:
             return
         voltage = self.voltage_spin.value()
         current = self.current_spin.value()
+        forced_range_name = self.range_combo.currentData()
         confirm = QtWidgets.QMessageBox.question(
             self,
             "Confirmar energização",
@@ -177,6 +234,7 @@ class ManualOutputDialog(QtWidgets.QDialog):
             self._instrument.set_port(self._port)
             if not self._instrument.is_connected:
                 self._instrument.connect()
+            self._instrument.set_forced_range(forced_range_name)
             self._instrument.apply(voltage, current)
             self._instrument.output_on()
 
@@ -186,10 +244,11 @@ class ManualOutputDialog(QtWidgets.QDialog):
     def _after_turned_on(self) -> None:
         self._output_on = True
         self._set_busy(False, "Saída: LIGADA")
-        self.on_button.setEnabled(False)
+        self._refresh_on_button_enabled()
         self.off_button.setEnabled(True)
         self.voltage_spin.setEnabled(False)
         self.current_spin.setEnabled(False)
+        self.range_combo.setEnabled(False)
         self._start_poller()
 
     def _on_turn_off(self) -> None:
@@ -202,10 +261,11 @@ class ManualOutputDialog(QtWidgets.QDialog):
     def _after_turned_off(self) -> None:
         self._output_on = False
         self._set_busy(False, "Saída: DESLIGADA")
-        self.on_button.setEnabled(True)
+        self._refresh_on_button_enabled()
         self.off_button.setEnabled(False)
         self.voltage_spin.setEnabled(True)
         self.current_spin.setEnabled(True)
+        self.range_combo.setEnabled(bool(self._instrument.ranges))
 
     # -- infraestrutura -----------------------------------------------------
 
@@ -220,10 +280,11 @@ class ManualOutputDialog(QtWidgets.QDialog):
     def _on_action_failed(self, message: str) -> None:
         self._output_on = False
         self._set_busy(False, "Saída: DESLIGADA")
-        self.on_button.setEnabled(True)
+        self._refresh_on_button_enabled()
         self.off_button.setEnabled(False)
         self.voltage_spin.setEnabled(True)
         self.current_spin.setEnabled(True)
+        self.range_combo.setEnabled(bool(self._instrument.ranges))
         QtWidgets.QMessageBox.warning(self, "Falha na saída manual", message)
 
     def _start_poller(self) -> None:

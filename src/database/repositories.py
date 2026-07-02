@@ -123,15 +123,16 @@ class TestParameterConfigRepository:
             """
             INSERT INTO test_parameter_configs
                 (board_id, name, nominal_voltage, voltage_min, voltage_max,
-                 current_max, test_duration_s, power_sequence_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 current_max, test_duration_s, power_sequence_json, range_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (board_id, name) DO UPDATE SET
                 nominal_voltage = excluded.nominal_voltage,
                 voltage_min = excluded.voltage_min,
                 voltage_max = excluded.voltage_max,
                 current_max = excluded.current_max,
                 test_duration_s = excluded.test_duration_s,
-                power_sequence_json = excluded.power_sequence_json
+                power_sequence_json = excluded.power_sequence_json,
+                range_mode = excluded.range_mode
             """,
             (
                 config.board_id,
@@ -142,6 +143,7 @@ class TestParameterConfigRepository:
                 config.current_max,
                 config.test_duration_s,
                 sequence_json,
+                config.range_mode,
             ),
         )
         conn.commit()
@@ -179,6 +181,7 @@ class TestParameterConfigRepository:
             current_max=row["current_max"],
             test_duration_s=row["test_duration_s"],
             power_sequence=steps,
+            range_mode=row["range_mode"],
             created_at=row["created_at"],
         )
 

@@ -62,6 +62,9 @@ class TestParameterConfig:
     current_max: float
     test_duration_s: float
     power_sequence: list[PowerStep]
+    # Faixa V/A forçada pelo operador (ver VoltageRange em config.py). None =
+    # seleção automática (padrão/recomendado).
+    range_mode: str | None = None
     created_at: str | None = None
 
 
