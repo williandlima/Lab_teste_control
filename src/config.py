@@ -46,6 +46,14 @@ class SerialConfig:
     # Modo demonstração: usa uma fonte simulada em vez da porta COM real, para
     # rodar o fluxo completo sem hardware conectado (ver simulated_serial.py).
     simulate: bool = False
+    # Acomodação após abrir a porta/levantar DTR-RTS, antes de limpar os
+    # buffers e sondar *IDN? — em adaptadores USB-serial (FTDI), bytes de uma
+    # sessão anterior ainda podem estar "em trânsito" via USB quando a porta
+    # reabre; sem essa pausa, reset_input_buffer() roda cedo demais e não
+    # limpa esse lixo, que corrompe a resposta ao *IDN? (framing/-511) da
+    # sondagem seguinte. Só importa entre ensaios (fechar+reabrir rápido); a
+    # 1ª conexão do dia não tem sessão anterior para deixar lixo no buffer.
+    port_settle_s: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -170,6 +178,7 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
         rtscts=serial_raw.get("rtscts", False),
         dsrdtr=serial_raw.get("dsrdtr", False),
         simulate=serial_raw.get("simulate", False),
+        port_settle_s=serial_raw.get("port_settle_s", 0.25),
     )
 
     reconnection = ReconnectionConfig(**raw["reconnection"])

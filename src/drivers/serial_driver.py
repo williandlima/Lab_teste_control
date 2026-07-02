@@ -155,6 +155,14 @@ class SerialTransport:
                 self._serial.dtr = True
             if self._config.force_rts_high:
                 self._serial.rts = True
+            # Acomodação antes de limpar os buffers: bytes de uma sessão
+            # anterior podem ainda estar "em trânsito" via USB (adaptadores
+            # FTDI) quando a porta acabou de reabrir — sem esta pausa,
+            # reset_input_buffer() roda cedo demais e não limpa esse lixo,
+            # que some ali só para reaparecer no meio da resposta ao *IDN?
+            # da sondagem seguinte (erro de framing/-511 entre ensaios).
+            if self._config.port_settle_s > 0:
+                time.sleep(self._config.port_settle_s)
             # Descarta qualquer lixo deixado no buffer por uma sessão anterior
             # (evita que uma resposta órfã seja lida como se fosse da atual).
             self._serial.reset_input_buffer()

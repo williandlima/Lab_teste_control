@@ -66,15 +66,24 @@ class PowerSupplyE363x(BaseSerialInstrument):
                 _logger.warning("Falha ao verificar/limpar latch de %s na conexão: %s", name, exc)
 
     def on_disconnecting(self) -> None:
-        """Failsafe: tenta desligar a saída antes de fechar a porta.
+        """Failsafe: desliga a saída e devolve a fonte ao painel frontal.
 
         Best-effort — se a comunicação já estiver morta, não bloqueia o
         encerramento (quem chama precisa fechar a porta de qualquer forma).
+        Sem o `SYSTem:LOCal`, a fonte fica presa em modo remoto entre
+        ensaios (só `on_connected()` reafirma REMote na conexão seguinte,
+        nunca solta LOCal); devolver o controle ao painel frontal aqui evita
+        deixar a fonte "travada" para o operador caso o app não seja
+        reaberto logo em seguida.
         """
         try:
             self.output_off()
         except InstrumentCommunicationError as exc:
             _logger.warning("Falha ao desligar saída no failsafe de desconexão: %s", exc)
+        try:
+            self.scpi.write("SYSTem:LOCal")
+        except InstrumentCommunicationError as exc:
+            _logger.warning("Falha ao devolver a fonte ao modo local na desconexão: %s", exc)
 
     def output_on(self) -> None:
         self.scpi.write("OUTPut:STATe ON")
