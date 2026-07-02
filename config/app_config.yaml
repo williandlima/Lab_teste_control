@@ -56,13 +56,17 @@ instrument:
   asset_id: null         # patrimônio/etiqueta interna, ex.: "AVB-INST-0042"
   calibration_due: null  # validade da calibração, ex.: "2026-12-31"
   # Faixas V/A da fonte (confira contra o painel/manual do SEU instrumento —
-  # os valores abaixo são os informados para a E3634A em uso). Cada ensaio
-  # troca de faixa automaticamente se o setpoint do passo não couber na faixa
-  # já ativa (evita "SCPI error -222: Data out of range" ao aplicar tensão
-  # acima do teto da faixa selecionada, mesmo cabendo numa faixa maior).
-  # Deixe [] para desligar esse gerenciamento (mantém a faixa como estiver).
+  # os valores abaixo são os do SCPI Command Reference oficial da E3634A:
+  # LOW = 25V/7A, HIGH = 50V/4A — LOW NÃO é 27V; um setpoint entre 25V e 27V
+  # (ex.: 26V) fica FORA do teto real da faixa LOW mesmo com a versão anterior
+  # desta config, que usava 27.0 por engano e reproduzia exatamente o
+  # "SCPI error -222: Data out of range" relatado em campo em 26V/1A, porque
+  # o app achava que 26V ainda cabia em LOW e nunca trocava para HIGH. Cada
+  # ensaio troca de faixa automaticamente se o setpoint do passo não couber
+  # na faixa já ativa. Deixe [] para desligar esse gerenciamento (mantém a
+  # faixa como estiver).
   ranges:
-    - {name: "LOW", max_voltage: 27.0, max_current: 7.0}
+    - {name: "LOW", max_voltage: 25.0, max_current: 7.0}
     - {name: "HIGH", max_voltage: 50.0, max_current: 4.0}
 
 test_defaults:
