@@ -87,6 +87,13 @@ class TestRunConfig:
     # isso agora é o operador quem escolhe o valor exato.
     ovp_level_v: float = 0.0
     ocp_level_a: float = 0.0
+    # Faixa V/A forçada pelo operador nos Parâmetros do ensaio (ver
+    # PowerSupplyE363x.set_forced_range). None = seleção automática
+    # (padrão/recomendado): cada passo troca de faixa sozinho conforme
+    # necessário. Um nome de faixa trava o ensaio INTEIRO nela — se algum
+    # passo da sequência não couber, falha com erro acionável em vez de
+    # tentar outra faixa sozinho.
+    range_mode: str | None = None
 
     def steps(self) -> list[PowerStep]:
         """Sequência efetiva: usa power_sequence se houver, senão 1 passo único."""
@@ -262,7 +269,14 @@ class TestStateMachine:
         disparo de OVP/OCP — nesse caso o CLEar é necessário e válido porque
         a proteção definitivamente disparou. Na primeira configuração (latch
         limpo), enviar CLEar pode gerar erro 521 em alguns firmwares da E363x.
+
+        Também reafirma a faixa V/A forçada (se houver) ANTES do primeiro
+        `apply()` do ensaio — não é I/O por si só (só grava a intenção no
+        driver), mas precisa ocorrer aqui e não em __init__/on_connected
+        porque `range_mode` é escolha do preset de parâmetros, não do
+        instrumento em si.
         """
+        self._instrument.set_forced_range(self._config.range_mode)
         if self._config.ovp_level_v <= 0 and self._config.ocp_level_a <= 0:
             return True
         for attempt in range(1, 3):

@@ -36,6 +36,22 @@ class PowerSupplyE363x(BaseSerialInstrument):
         # pra confiar em estado carregado de uma sessão anterior nem em ajuste
         # manual do operador pelo painel frontal entre ensaios.
         self._active_range_name: str | None = None
+        # None = seleção automática (comportamento padrão de _ensure_range).
+        # Definido (nome de uma faixa configurada) = o operador pediu para
+        # travar nessa faixa explicitamente (ex.: manter resolução da LOW
+        # mesmo que o próximo setpoint também coubesse na HIGH) — nesse caso
+        # _ensure_range NUNCA escolhe outra faixa sozinho, só valida que o
+        # setpoint cabe na faixa forçada e levanta erro acionável se não couber.
+        self._forced_range_name: str | None = None
+
+    @property
+    def ranges(self) -> tuple[VoltageRange, ...]:
+        """Faixas V/A configuradas (ordenadas por teto de tensão), só leitura.
+
+        Exposto para a GUI dar feedback visual de faixa (ver
+        gui/widgets/range_feedback.py) sem acessar o atributo "privado".
+        """
+        return self._ranges
 
     def on_connected(self) -> None:
         """Valida a comunicação ANTES de entrar em modo remoto.
@@ -139,6 +155,39 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.write(f"VOLTage:RANGe {range_name}")
         self.scpi.check_error()
 
+    def set_forced_range(self, range_name: str | None) -> None:
+        """Trava a seleção de faixa em `range_name`, ou volta ao automático (None).
+
+        Uso: o operador escolhe explicitamente uma faixa na GUI (Saída manual
+        ou Parâmetros do ensaio) em vez de deixar `_ensure_range` escolher a
+        mais "justa" sozinha — por exemplo, para manter mais resolução na LOW
+        mesmo num passo que também caberia na HIGH. Chamar com None restaura
+        o comportamento automático (padrão). Não faz I/O por si só: o efeito
+        só aparece no próximo `apply()`/`set_voltage()`.
+        """
+        self._forced_range_name = range_name
+        # Força a próxima chamada a reafirmar a faixa explicitamente mesmo
+        # que, por coincidência, seja a mesma que já estava ativa — mesma
+        # cautela de on_connected() quanto a estado herdado.
+        self._active_range_name = None
+
+    @staticmethod
+    def find_fitting_range(
+        volts: float, amps: float, ranges: tuple[VoltageRange, ...]
+    ) -> VoltageRange | None:
+        """Faixa mais "justa" (menor teto de tensão) que comporta volts/amps.
+
+        Função pura, sem I/O — reaproveitada pela GUI para dar feedback visual
+        de faixa em tempo real (cor/tooltip nos campos) sem depender de uma
+        conexão serial aberta. `ranges` já deve vir ordenada por max_voltage
+        crescente (ver __init__); só ordena de novo aqui por segurança, já
+        que quem chama pode passar `app_config.instrument.ranges` direto.
+        """
+        candidates = sorted(ranges, key=lambda r: r.max_voltage)
+        return next(
+            (r for r in candidates if volts <= r.max_voltage and amps <= r.max_current), None
+        )
+
     def _ensure_range(self, volts: float, amps: float) -> None:
         """Seleciona a faixa V/A que comporta o setpoint pedido, se preciso.
 
@@ -149,17 +198,36 @@ class PowerSupplyE363x(BaseSerialInstrument):
         já estivesse (painel frontal ou sessão anterior). Sem faixas
         configuradas (`instrument.ranges` vazio), não faz nada — mantém o
         comportamento anterior para instrumentos de faixa única/não mapeados.
+
+        Com uma faixa FORÇADA (`set_forced_range`), a seleção automática é
+        desligada: só valida que o setpoint cabe na faixa pedida pelo
+        operador e nunca escolhe outra sozinha, mesmo que uma faixa maior
+        fosse tecnicamente compatível.
         """
         if not self._ranges:
             return
-        selected = next(
-            (r for r in self._ranges if volts <= r.max_voltage and amps <= r.max_current), None
-        )
-        if selected is None:
-            raise InstrumentRangeOutOfBoundsError(
-                f"{volts:.2f} V / {amps:.3f} A não cabe em nenhuma faixa configurada da "
-                f"fonte (ver 'instrument.ranges' em app_config.yaml)."
-            )
+        if self._forced_range_name is not None:
+            forced = next((r for r in self._ranges if r.name == self._forced_range_name), None)
+            if forced is None:
+                raise InstrumentRangeOutOfBoundsError(
+                    f"Faixa forçada '{self._forced_range_name}' não existe em "
+                    f"'instrument.ranges' (app_config.yaml)."
+                )
+            if volts > forced.max_voltage or amps > forced.max_current:
+                raise InstrumentRangeOutOfBoundsError(
+                    f"{volts:.2f} V / {amps:.3f} A não cabe na faixa '{forced.name}' "
+                    f"(até {forced.max_voltage:.2f} V / {forced.max_current:.3f} A), que foi "
+                    "forçada manualmente pelo operador. Escolha outra faixa ou volte para "
+                    "'Automática'."
+                )
+            selected = forced
+        else:
+            selected = self.find_fitting_range(volts, amps, self._ranges)
+            if selected is None:
+                raise InstrumentRangeOutOfBoundsError(
+                    f"{volts:.2f} V / {amps:.3f} A não cabe em nenhuma faixa configurada da "
+                    f"fonte (ver 'instrument.ranges' em app_config.yaml)."
+                )
         if selected.name == self._active_range_name:
             return
         # Trocar de faixa com a saída ligada pode causar uma queda momentânea

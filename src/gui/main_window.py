@@ -335,7 +335,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.header.set_simulation_enabled(app_config.serial.simulate)
 
         self.registration_view = RegistrationView(self._operator_repo, self._board_repo)
-        self.parameters_view = TestParametersView(self._config_repo, asdict(app_config.test_defaults))
+        self.parameters_view = TestParametersView(
+            self._config_repo, asdict(app_config.test_defaults), ranges=app_config.instrument.ranges
+        )
         self.monitoring_panel = _MonitoringPanel()
         self.evaluation_view = EvaluationView(self._evaluation_repo)
 

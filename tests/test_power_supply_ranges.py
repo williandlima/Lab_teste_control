@@ -194,6 +194,72 @@ def test_shipped_config_matches_official_e3634a_range_ceilings() -> None:
     assert ranges["HIGH"].max_current == pytest.approx(4.0)
 
 
+# -- Faixa forçada manualmente pelo operador (seleção na GUI) ----------------
+
+
+def test_forced_range_that_fits_is_selected_without_falling_back_to_auto(mocker) -> None:
+    """5V/1A caberia na LOW (mais 'justa'), mas o operador força HIGH -- deve
+    respeitar a escolha em vez de preferir a mais justa automaticamente."""
+    holder = _patch_serial(mocker, active_range="LOW")
+    instrument = PowerSupplyE363x(_serial_config(), _reconnection(), ranges=(_LOW, _HIGH))
+    instrument.connect()
+    instrument.set_forced_range("HIGH")
+
+    instrument.apply(5.0, 1.0)
+
+    assert holder["sim"].range_switches == ["HIGH"]
+
+
+def test_forced_range_that_does_not_fit_raises_actionable_error(mocker) -> None:
+    """26V não cabe na LOW forçada (teto 25V) -- não deve tentar trocar para
+    HIGH sozinho (o operador pediu explicitamente para travar em LOW)."""
+    holder = _patch_serial(mocker, active_range="LOW")
+    instrument = PowerSupplyE363x(_serial_config(), _reconnection(), ranges=(_LOW, _HIGH))
+    instrument.connect()
+    instrument.set_forced_range("LOW")
+
+    with pytest.raises(InstrumentRangeOutOfBoundsError) as excinfo:
+        instrument.apply(26.0, 1.0)
+
+    assert "LOW" in str(excinfo.value)
+    assert holder["sim"].range_switches == []  # nunca tentou trocar pra HIGH sozinho
+
+
+def test_forced_range_unknown_name_raises_actionable_error(mocker) -> None:
+    _patch_serial(mocker, active_range="LOW")
+    instrument = PowerSupplyE363x(_serial_config(), _reconnection(), ranges=(_LOW, _HIGH))
+    instrument.connect()
+    instrument.set_forced_range("MEDIUM")  # não existe em (_LOW, _HIGH)
+
+    with pytest.raises(InstrumentRangeOutOfBoundsError) as excinfo:
+        instrument.apply(5.0, 1.0)
+
+    assert "MEDIUM" in str(excinfo.value)
+
+
+def test_forced_range_none_restores_automatic_selection(mocker) -> None:
+    holder = _patch_serial(mocker, active_range="LOW")
+    instrument = PowerSupplyE363x(_serial_config(), _reconnection(), ranges=(_LOW, _HIGH))
+    instrument.connect()
+    instrument.set_forced_range("HIGH")
+    instrument.apply(5.0, 1.0)
+    assert holder["sim"].range_switches == ["HIGH"]
+
+    instrument.set_forced_range(None)  # volta ao automático
+    instrument.apply(5.0, 1.0)  # 5V/1A cabe na LOW, que é mais "justa"
+
+    assert holder["sim"].range_switches == ["HIGH", "LOW"]
+
+
+def test_find_fitting_range_is_pure_and_reusable_without_hardware() -> None:
+    """Usado pela GUI para colorir campos em tempo real -- não pode exigir
+    conexão serial nem instância do driver."""
+    assert PowerSupplyE363x.find_fitting_range(5.0, 1.0, (_LOW, _HIGH)) == _LOW
+    assert PowerSupplyE363x.find_fitting_range(26.0, 1.0, (_LOW, _HIGH)) == _HIGH
+    assert PowerSupplyE363x.find_fitting_range(60.0, 1.0, (_LOW, _HIGH)) is None
+    assert PowerSupplyE363x.find_fitting_range(5.0, 1.0, ()) is None
+
+
 def test_apply_26v_1a_against_shipped_config_reproduces_and_fixes_field_report(mocker) -> None:
     """Fim-a-fim com o `config/app_config.yaml` real (não fixture): repete
     exatamente o cenário de campo -- "Saída manual" com 26V/1A, fonte

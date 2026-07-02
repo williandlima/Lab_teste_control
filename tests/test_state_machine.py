@@ -261,3 +261,26 @@ def test_mark_evaluated_raises_before_test_finishes() -> None:
 
     with pytest.raises(RuntimeError):
         sm.mark_evaluated()
+
+
+def test_configure_source_forwards_range_mode_to_the_instrument() -> None:
+    """O operador pode travar a faixa V/A no preset de parâmetros (ver
+    TestParametersView) -- _configure_source precisa repassar essa escolha
+    para o driver ANTES do primeiro apply(), a cada (re)configuração."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    sm = TestStateMachine(instrument, buffer, _make_config(range_mode="HIGH"))
+
+    sm.run()
+
+    instrument.set_forced_range.assert_any_call("HIGH")
+
+
+def test_configure_source_forwards_automatic_range_mode_by_default() -> None:
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    sm = TestStateMachine(instrument, buffer, _make_config())  # range_mode não informado = None
+
+    sm.run()
+
+    instrument.set_forced_range.assert_any_call(None)
