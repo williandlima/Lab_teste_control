@@ -48,6 +48,15 @@ class ScpiInputBufferOverflowError(ScpiError):
     """
 
 
+class InstrumentRangeOutOfBoundsError(InstrumentCommunicationError):
+    """O setpoint pedido não cabe em nenhuma faixa V/A configurada do instrumento.
+
+    Detectado no cliente, antes de qualquer I/O com a fonte — dá uma mensagem
+    acionável (qual faixa falta configurar) em vez do "-222: Data out of
+    range" genérico que o instrumento devolveria.
+    """
+
+
 class ScpiInstrumentFaultError(ScpiError):
     """SYSTem:ERRor? retornou um código de erro não mapeado explicitamente."""
 

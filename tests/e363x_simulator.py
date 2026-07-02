@@ -138,3 +138,92 @@ class SimulatedE3631A:
         if command.endswith("?"):
             # Resposta numérica plausível para queries de medição/setpoint.
             self._tx_lines.append(b"0.000\n")
+
+
+class SimulatedE3634A(SimulatedE3631A):
+    """Fonte simulada com duas faixas V/A (E3634A: LOW/HIGH), para reproduzir
+    o "SCPI error -222: Data out of range" relatado em campo ao aplicar um
+    setpoint que cabe numa faixa MAIOR mas não na faixa ATIVA — o app nunca
+    mandava `VOLTage:RANGe`, então a fonte ficava na faixa que já estivesse
+    (painel frontal ou sessão anterior).
+
+    `active_range` modela o estado inicial da fonte real: pode já estar na
+    faixa "errada" quando o app conecta, exatamente como em campo.
+    """
+
+    _IDN_RESPONSE_OVERRIDE = "Keysight Technologies,E3634A,MY00000000,2.0-1.0"
+
+    def __init__(
+        self,
+        *,
+        ranges: dict[str, tuple[float, float]] | None = None,
+        active_range: str = "LOW",
+        **kwargs: object,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._e3634_ranges = ranges or {"LOW": (25.0, 7.0), "HIGH": (50.0, 4.0)}
+        self._active_range = active_range
+        self._last_voltage_setpoint = 0.0
+        self._last_current_setpoint = 0.0
+        self._output_on = False
+        # Observável para os testes: nomes das faixas selecionadas, na ordem.
+        self.range_switches: list[str] = []
+
+    def _handle_command(self, command: str) -> None:
+        if command == "*IDN?":
+            self._tx_lines.append((self._IDN_RESPONSE_OVERRIDE + "\n").encode("ascii"))
+            return
+        if command == "OUTPUT:STATE ON":
+            self._output_on = True
+            return
+        if command == "OUTPUT:STATE OFF":
+            self._output_on = False
+            return
+        if command == "OUTPUT:STATE?":
+            self._tx_lines.append((b"1\n" if self._output_on else b"0\n"))
+            return
+        is_range_command = (
+            command.startswith("VOLTAGE:RANGE ")
+            or command.startswith("VOLT:RANG ")
+            or command.startswith("APPLY ")
+            or command.startswith("VOLTAGE:LEVEL:IMMEDIATE:AMPLITUDE ")
+            or command.startswith("VOLT:LEV:IMM:AMPL ")
+            or command.startswith("CURRENT:LEVEL:IMMEDIATE:AMPLITUDE ")
+            or command.startswith("CURR:LEV:IMM:AMPL ")
+        )
+        if is_range_command and not self._remote:
+            self._raise_beep(-203, "Command protected (local mode)")
+            return
+        if command.startswith("VOLTAGE:RANGE ") or command.startswith("VOLT:RANG "):
+            name = command.split(" ", 1)[1].strip()
+            if name not in self._e3634_ranges:
+                self._raise_beep(-222, "Data out of range")
+                return
+            self._active_range = name
+            self.range_switches.append(name)
+            return
+        if command.startswith("APPLY "):
+            volts_str, amps_str = command[len("APPLY "):].split(",")
+            self._apply_setpoint(float(volts_str), float(amps_str))
+            return
+        if command.startswith("VOLTAGE:LEVEL:IMMEDIATE:AMPLITUDE ") or command.startswith(
+            "VOLT:LEV:IMM:AMPL "
+        ):
+            value = float(command.rsplit(" ", 1)[1])
+            self._apply_setpoint(value, self._last_current_setpoint)
+            return
+        if command.startswith("CURRENT:LEVEL:IMMEDIATE:AMPLITUDE ") or command.startswith(
+            "CURR:LEV:IMM:AMPL "
+        ):
+            value = float(command.rsplit(" ", 1)[1])
+            self._apply_setpoint(self._last_voltage_setpoint, value)
+            return
+        super()._handle_command(command)
+
+    def _apply_setpoint(self, volts: float, amps: float) -> None:
+        max_v, max_a = self._e3634_ranges[self._active_range]
+        if volts > max_v or amps > max_a:
+            self._raise_beep(-222, "Data out of range")
+            return
+        self._last_voltage_setpoint = volts
+        self._last_current_setpoint = amps
