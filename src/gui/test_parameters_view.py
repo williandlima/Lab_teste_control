@@ -18,6 +18,8 @@ from gui.widgets.range_feedback import (
     RangeFitState,
     apply_spin_feedback,
     apply_table_item_feedback,
+    build_range_combo,
+    build_range_warning_label,
     evaluate_range_fit,
 )
 
@@ -97,15 +99,7 @@ class TestParametersView(QtWidgets.QWidget):
         # PowerSupplyE363x._ensure_range); escolher uma faixa nomeada trava
         # o ensaio INTEIRO nela — se um passo não couber, falha com erro
         # acionável em vez de trocar de faixa sozinho.
-        self.range_combo = QtWidgets.QComboBox()
-        self.range_combo.addItem("Automática (recomendado)", userData=None)
-        for voltage_range in self._ranges:
-            self.range_combo.addItem(
-                f"{voltage_range.name} — até {voltage_range.max_voltage:.2f} V / "
-                f"{voltage_range.max_current:.3f} A",
-                userData=voltage_range.name,
-            )
-        self.range_combo.setEnabled(bool(self._ranges))
+        self.range_combo = build_range_combo(self._ranges)
 
         limits_form.addRow("Nome da configuração:", self.config_name_edit)
         limits_form.addRow("Tensão nominal:", self.nominal_voltage_spin)
@@ -116,10 +110,7 @@ class TestParametersView(QtWidgets.QWidget):
         limits_form.addRow("Duração do teste (passo único):", duration_row)
         form_layout.addWidget(limits_group)
 
-        self.range_warning_label = QtWidgets.QLabel()
-        self.range_warning_label.setWordWrap(True)
-        self.range_warning_label.setObjectName("rangeWarningLabel")
-        self.range_warning_label.setVisible(False)
+        self.range_warning_label = build_range_warning_label()
         form_layout.addWidget(self.range_warning_label)
 
         self.nominal_voltage_spin.valueChanged.connect(self._update_single_step_range_feedback)

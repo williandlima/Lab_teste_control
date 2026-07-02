@@ -7,8 +7,13 @@ que precisa rodar em qualquer CI mesmo sem display.
 """
 from __future__ import annotations
 
+import itertools
+
+import pytest
+
 from config import VoltageRange
 from gui.widgets.range_feedback import RangeFitState, evaluate_range_fit
+from hardware.power_supply import PowerSupplyE363x
 
 _LOW = VoltageRange(name="LOW", max_voltage=25.0, max_current=7.0)
 _HIGH = VoltageRange(name="HIGH", max_voltage=50.0, max_current=4.0)
@@ -56,9 +61,48 @@ def test_forced_range_with_value_that_fits_nothing_is_out_of_all() -> None:
     assert result.state is RangeFitState.OUT_OF_ALL_RANGES
 
 
-def test_forced_range_name_that_does_not_exist_falls_back_to_fitting_check() -> None:
-    """Nome de faixa forçada inexistente ('MEDIUM') não deve explodir --
-    trata como 'não cabe na forçada' e sugere a que realmente serve."""
+def test_forced_range_name_that_does_not_exist_reports_the_config_typo() -> None:
+    """Nome de faixa forçada inexistente ('MEDIUM', ex.: typo/faixa removida
+    de app_config.yaml) não deve explodir, e precisa avisar da causa real
+    (nome inválido) -- não mascarar como "valor não cabe", que sugeriria ao
+    operador trocar de faixa quando na verdade a config está errada. Mesma
+    mensagem que PowerSupplyE363x._ensure_range levantaria de verdade
+    (as duas passam por classify_range_fit)."""
     result = evaluate_range_fit(5.0, 1.0, _RANGES, forced_range_name="MEDIUM")
-    assert result.state is RangeFitState.OUT_OF_FORCED_RANGE
-    assert "LOW" in result.message
+    assert result.state is RangeFitState.OUT_OF_ALL_RANGES
+    assert "MEDIUM" in result.message
+    assert "não existe" in result.message
+
+
+# -- Guarda de regressão: GUI e driver NUNCA podem divergir -------------------
+#
+# evaluate_range_fit() e PowerSupplyE363x._ensure_range() decidiam a mesma
+# coisa (o que cabe em qual faixa) com duas implementações escritas à mão em
+# arquivos diferentes -- bastava uma diverência sutil para a pré-visualização
+# da tela mostrar "OK" num setpoint que o instrumento real recusaria (ou
+# vice-versa). Agora as duas chamam PowerSupplyE363x.classify_range_fit();
+# este teste varre uma grade de casos (dentro/fora de cada faixa, forçada e
+# automática, nome inválido) comparando OK/não-OK da GUI contra o que o
+# driver realmente aceita/recusa, para travar essa equivalência no futuro.
+
+
+@pytest.mark.parametrize(
+    "volts,amps,forced_range_name",
+    [
+        (v, a, forced)
+        for v, a in itertools.product((0.0, 5.0, 24.99, 25.0, 25.01, 26.0, 49.99, 50.0, 60.0), (0.5, 4.0, 4.01, 7.0, 7.01))
+        for forced in (None, "LOW", "HIGH", "MEDIUM")
+    ],
+)
+def test_gui_preview_never_diverges_from_the_real_driver_decision(
+    volts: float, amps: float, forced_range_name: str | None
+) -> None:
+    gui_result = evaluate_range_fit(volts, amps, _RANGES, forced_range_name)
+    driver_would_accept = (
+        PowerSupplyE363x.classify_range_fit(volts, amps, _RANGES, forced_range_name)[0] is not None
+    )
+    assert (gui_result.state is RangeFitState.OK) == driver_would_accept, (
+        f"GUI diz {gui_result.state} mas o driver "
+        f"{'aceitaria' if driver_would_accept else 'recusaria'} {volts}V/{amps}A "
+        f"(forçado={forced_range_name!r})"
+    )
