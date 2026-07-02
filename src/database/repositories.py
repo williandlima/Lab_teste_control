@@ -25,6 +25,14 @@ from database.models import (
 )
 
 
+class RecordInUseError(Exception):
+    """Excluir um registro referenciado por outro (ex.: operador ou config
+    de parâmetros com ensaios reais vinculados) -- `PRAGMA foreign_keys=ON`
+    (ver database.py) já impede a exclusão a nível de banco; aqui só se
+    traduz o `sqlite3.IntegrityError` bruto numa mensagem acionável, sem
+    vazar detalhe de SQL pra camada de GUI."""
+
+
 class OperatorRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -55,6 +63,19 @@ class OperatorRepository:
         if row is None:
             raise LookupError(f"Operator {operator_id} não encontrado.")
         return self._to_model(row)
+
+    def delete(self, operator_id: int) -> None:
+        """Remove o operador da lista/histórico -- ex.: cadastro duplicado
+        ou digitado errado. Bloqueado pelo próprio banco (RecordInUseError)
+        se o operador já tiver algum ensaio registrado: nunca apaga
+        histórico de teste de verdade, só entradas nunca usadas."""
+        try:
+            self._db.connection.execute("DELETE FROM operators WHERE id = ?", (operator_id,))
+            self._db.connection.commit()
+        except sqlite3.IntegrityError as exc:
+            raise RecordInUseError(
+                "Este operador tem ensaios registrados e não pode ser excluído."
+            ) from exc
 
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Operator:
@@ -160,6 +181,20 @@ class TestParameterConfigRepository:
         if row is None:
             raise LookupError(f"TestParameterConfig {config_id} não encontrado.")
         return self._to_model(row)
+
+    def delete(self, config_id: int) -> None:
+        """Remove a configuração salva do histórico -- ex.: preset de teste
+        criado por engano. Bloqueado pelo próprio banco (RecordInUseError)
+        se algum ensaio real já tiver usado essa configuração."""
+        try:
+            self._db.connection.execute(
+                "DELETE FROM test_parameter_configs WHERE id = ?", (config_id,)
+            )
+            self._db.connection.commit()
+        except sqlite3.IntegrityError as exc:
+            raise RecordInUseError(
+                "Esta configuração já foi usada em algum ensaio e não pode ser excluída."
+            ) from exc
 
     def list_for_board(self, board_id: int) -> list[TestParameterConfig]:
         rows = self._db.connection.execute(

@@ -23,6 +23,7 @@ from database.repositories import (
     EventLogRepository,
     MonitoredSampleRepository,
     OperatorRepository,
+    RecordInUseError,
     TestParameterConfigRepository,
     TestSessionRepository,
 )
@@ -42,6 +43,44 @@ def test_operator_get_or_create_is_idempotent(db: Database) -> None:
     second = repo.get_or_create("Willian Lima")
     assert first.id == second.id
     assert len(repo.list_all()) == 1
+
+
+def test_operator_delete_removes_an_unused_entry(db: Database) -> None:
+    """Cadastro duplicado/errado, sem nenhum ensaio vinculado -- deve poder
+    ser removido do histórico normalmente."""
+    repo = OperatorRepository(db)
+    operator = repo.get_or_create("Duplicado")
+
+    repo.delete(operator.id)
+
+    assert repo.list_all() == []
+
+
+def test_operator_delete_is_blocked_when_referenced_by_a_test_session(db: Database) -> None:
+    """PRAGMA foreign_keys=ON (database.py) já bloqueia a nível de banco --
+    o repository só traduz o IntegrityError bruto numa mensagem acionável.
+    Nunca pode apagar o operador de um ensaio que realmente aconteceu."""
+    operator_repo = OperatorRepository(db)
+    operator = operator_repo.get_or_create("Com ensaio")
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    TestSessionRepository(db).create(
+        TestSession(
+            id=None,
+            board_id=board.id,
+            serial_number="SN-0001",
+            operator_id=operator.id,
+            test_parameter_config_id=None,
+            config_snapshot_json=json.dumps({}),
+            production_order=None,
+            observations=None,
+            status=TestSessionStatus.COMPLETED,
+        )
+    )
+
+    with pytest.raises(RecordInUseError):
+        operator_repo.delete(operator.id)
+
+    assert operator_repo.get(operator.id) is not None  # não foi excluído
 
 
 def test_board_get_or_create_distinguishes_revisions(db: Database) -> None:
@@ -123,6 +162,65 @@ def test_test_parameter_config_roundtrips_off_duration_per_step(db: Database) ->
         PowerStep(5.0, 1.0, 10.0, off_duration_s=30.0),
         PowerStep(12.0, 2.0, 50.0, off_duration_s=0.0),
     ]
+
+
+def test_test_parameter_config_delete_removes_an_unused_entry(db: Database) -> None:
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    repo = TestParameterConfigRepository(db)
+    config = repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Preset por engano",
+            nominal_voltage=12.0,
+            voltage_min=11.5,
+            voltage_max=12.5,
+            current_max=2.0,
+            test_duration_s=60.0,
+            power_sequence=[],
+        )
+    )
+
+    repo.delete(config.id)
+
+    assert repo.list_for_board(board.id) == []
+
+
+def test_test_parameter_config_delete_is_blocked_when_used_by_a_test_session(db: Database) -> None:
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    operator = OperatorRepository(db).get_or_create("Op")
+    config_repo = TestParameterConfigRepository(db)
+    config = config_repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Usado de verdade",
+            nominal_voltage=12.0,
+            voltage_min=11.5,
+            voltage_max=12.5,
+            current_max=2.0,
+            test_duration_s=60.0,
+            power_sequence=[],
+        )
+    )
+    TestSessionRepository(db).create(
+        TestSession(
+            id=None,
+            board_id=board.id,
+            serial_number="SN-0001",
+            operator_id=operator.id,
+            test_parameter_config_id=config.id,
+            config_snapshot_json=json.dumps({}),
+            production_order=None,
+            observations=None,
+            status=TestSessionStatus.COMPLETED,
+        )
+    )
+
+    with pytest.raises(RecordInUseError):
+        config_repo.delete(config.id)
+
+    assert config_repo.get(config.id) is not None  # não foi excluído
 
 
 def test_test_parameter_config_save_overwrites_same_name_instead_of_duplicating(
