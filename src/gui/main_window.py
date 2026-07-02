@@ -74,6 +74,40 @@ _TERMINATION_TO_SESSION_STATUS = {
     TestState.FAULTED: TestSessionStatus.FAULTED,
 }
 
+# Conteúdo estático do botão "Ajuda" do cabeçalho (ver HeaderBar/_on_help) --
+# texto único de ponta a ponta em vez de ajuda contextual por tela, para
+# manter o impacto no código mínimo (um QDialog, sem estado por página).
+_HELP_HTML = """
+<h3>Fluxo do ensaio</h3>
+<ol>
+<li><b>Cadastro</b>: informe o operador e os dados da placa (código, part
+number, revisão).</li>
+<li><b>Parâmetros</b>: defina tensão nominal, corrente máxima e duração —
+ou monte uma sequência multi-step com "Adicionar passo" (cada passo pode
+ter um "Tempo OFF" opcional, saída desligada, antes do próximo). Escolha a
+"Faixa da fonte" (Automática é o recomendado). Campos ficam com borda
+colorida e uma mensagem se o valor não couber na faixa da fonte.</li>
+<li><b>Ensaio</b>: acompanha tensão/corrente ao vivo, com gráfico e o passo
+atual da sequência. Pode abortar a qualquer momento.</li>
+<li><b>Avaliação</b>: registre manualmente Aprovado / Reprovado /
+Observação — o veredito é sempre humano, nunca automático — e salve o
+relatório (Word, Excel e PDF de uma vez).</li>
+</ol>
+<h3>Cabeçalho (sempre visível)</h3>
+<ul>
+<li><b>Porta da fonte</b>: escolha manual, ou deixe em "Automático" para
+detectar pelo VID/PID configurado.</li>
+<li><b>Testar conexão</b>: sonda a fonte antes de iniciar qualquer ensaio
+— use sempre que trocar de porta ou religar o cabo.</li>
+<li><b>Saída manual…</b>: liga/desliga a saída fora da sequência do
+ensaio, para uma verificação rápida em bancada. Sempre desliga a saída
+ao fechar.</li>
+<li><b>Simulação</b>: roda o app inteiro com uma fonte virtual, sem
+hardware conectado — útil para treinar ou testar parâmetros.</li>
+</ul>
+<p><i>Em caso de dúvida, consulte o responsável técnico do FCT.</i></p>
+"""
+
 
 class TestRunWorker(QtCore.QThread):
     """Executa `TestStateMachine.run()` fora da thread da GUI."""
@@ -331,6 +365,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.header = HeaderBar(app_config.branding)
         self.header.test_connection_requested.connect(self._on_test_connection)
         self.header.manual_output_requested.connect(self._on_manual_output)
+        self.header.help_requested.connect(self._on_help)
         # Estado inicial do botão "Simulação" segue o config (serial.simulate).
         self.header.set_simulation_enabled(app_config.serial.simulate)
 
@@ -752,6 +787,23 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec()
         # Após o uso manual, a porta foi fechada pelo failsafe do diálogo.
         self.header.set_connection_unknown("Saída manual encerrada; reconfirme a conexão.")
+
+    def _on_help(self) -> None:
+        """Ajuda estática (sem estado/thread) — QDialog com QTextBrowser
+        rolável, mais adequado que um QMessageBox para um texto longo de
+        ponta a ponta sem cortar conteúdo em telas menores."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Ajuda — Como usar o app")
+        dialog.resize(560, 520)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        browser = QtWidgets.QTextBrowser()
+        browser.setOpenExternalLinks(False)
+        browser.setHtml(_HELP_HTML)
+        layout.addWidget(browser)
+        close_button = QtWidgets.QPushButton("Fechar")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
+        dialog.exec()
 
     def _on_test_connection(self, port: str) -> None:
         if self._worker is not None and self._worker.isRunning():

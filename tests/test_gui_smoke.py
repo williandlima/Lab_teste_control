@@ -42,6 +42,48 @@ def test_header_bar_shows_logo_and_port_selector(qtbot, app_config) -> None:
     assert header.selected_port() == ""  # default = automático
 
 
+def test_header_bar_help_button_emits_signal(qtbot, app_config) -> None:
+    from gui.widgets.header_bar import HeaderBar
+
+    header = HeaderBar(app_config.branding)
+    qtbot.addWidget(header)
+
+    with qtbot.waitSignal(header.help_requested, timeout=1000):
+        header.help_button.click()
+
+
+def test_help_button_opens_a_dialog_with_end_to_end_instructions(
+    qtbot, app_config, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    from PySide6 import QtWidgets
+
+    from gui.main_window import MainWindow
+
+    db = Database(tmp_path / "help.db")
+    db.connect()
+    window = MainWindow(app_config, db)
+    qtbot.addWidget(window)
+
+    captured = {}
+
+    def fake_exec(dialog_self):
+        captured["dialog"] = dialog_self
+        return QtWidgets.QDialog.DialogCode.Accepted
+
+    with patch.object(QtWidgets.QDialog, "exec", fake_exec):
+        window.header.help_button.click()
+
+    dialog = captured["dialog"]
+    browser = dialog.findChild(QtWidgets.QTextBrowser)
+    assert browser is not None
+    # Cobre as 4 etapas do fluxo e pelo menos um controle do cabeçalho.
+    for keyword in ("Cadastro", "Parâmetros", "Ensaio", "Avaliação", "Simulação"):
+        assert keyword in browser.toPlainText()
+    db.close()
+
+
 def test_main_window_builds_full_flow(qtbot, app_config, tmp_path: Path) -> None:
     from gui.main_window import MainWindow
 
