@@ -13,7 +13,7 @@ from PySide6 import QtCore, QtWidgets
 from config import VoltageRange
 from core.state_machine import TestRunConfig
 from database.models import Board, PowerStep, TestParameterConfig
-from database.repositories import TestParameterConfigRepository
+from database.repositories import RecordInUseError, TestParameterConfigRepository
 from gui.widgets.range_feedback import (
     RangeFitState,
     apply_spin_feedback,
@@ -64,8 +64,15 @@ class TestParametersView(QtWidgets.QWidget):
         self.history_combo = QtWidgets.QComboBox()
         self.load_button = QtWidgets.QPushButton("Carregar")
         self.load_button.clicked.connect(self._on_load_history)
+        self.delete_history_button = QtWidgets.QPushButton("Excluir")
+        self.delete_history_button.setToolTip(
+            "Remove esta configuração do histórico -- só funciona se ela nunca "
+            "tiver sido usada em um ensaio registrado."
+        )
+        self.delete_history_button.clicked.connect(self._on_delete_history)
         history_layout.addWidget(self.history_combo, stretch=1)
         history_layout.addWidget(self.load_button)
+        history_layout.addWidget(self.delete_history_button)
         form_layout.addWidget(history_group)
 
         limits_group = QtWidgets.QGroupBox("Tensão, corrente e duração")
@@ -248,6 +255,37 @@ class TestParametersView(QtWidgets.QWidget):
             return
         for config in self._config_repo.list_for_board(self._board.id):
             self.history_combo.addItem(config.name, userData=config)
+
+    def _on_delete_history(self) -> None:
+        """Remove uma configuração criada por engano -- ver "duvida" do
+        usuário sobre limpar operadores/testes carregados: não existia
+        forma de fazer isso pela GUI, só editando o banco direto. Bloqueado
+        pelo próprio banco (RecordInUseError) se a configuração já tiver
+        sido usada num ensaio registrado -- nunca apaga histórico de teste
+        de verdade."""
+        config: TestParameterConfig | None = self.history_combo.currentData()
+        if config is None:
+            QtWidgets.QMessageBox.warning(
+                self, "Nenhuma configuração selecionada",
+                "Escolha uma configuração salva no campo acima para excluir.",
+            )
+            return
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Confirmar exclusão",
+            f'Excluir a configuração "{config.name}" do histórico?\n\n'
+            "Só é possível se ela nunca tiver sido usada em um ensaio registrado.",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._config_repo.delete(config.id)
+        except RecordInUseError as exc:
+            QtWidgets.QMessageBox.warning(self, "Não é possível excluir", str(exc))
+            return
+        self.refresh_history()
 
     def _on_load_history(self) -> None:
         config: TestParameterConfig | None = self.history_combo.currentData()

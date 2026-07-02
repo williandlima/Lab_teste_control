@@ -11,7 +11,7 @@ import datetime as dt
 from PySide6 import QtCore, QtWidgets
 
 from database.models import Operator
-from database.repositories import BoardRepository, OperatorRepository
+from database.repositories import BoardRepository, OperatorRepository, RecordInUseError
 from version import APP_VERSION
 
 
@@ -65,7 +65,19 @@ class RegistrationView(QtWidgets.QWidget):
         self.if_edit = QtWidgets.QLineEdit()
         self.if_edit.setMinimumHeight(30)
 
-        operator_form.addRow("Operador:", self.operator_combo)
+        operator_row = QtWidgets.QWidget()
+        operator_row_layout = QtWidgets.QHBoxLayout(operator_row)
+        operator_row_layout.setContentsMargins(0, 0, 0, 0)
+        operator_row_layout.addWidget(self.operator_combo, stretch=1)
+        self.delete_operator_button = QtWidgets.QPushButton("Excluir")
+        self.delete_operator_button.setToolTip(
+            "Remove este operador do histórico -- só funciona se ele nunca "
+            "tiver sido usado em um ensaio registrado."
+        )
+        self.delete_operator_button.clicked.connect(self._on_delete_operator)
+        operator_row_layout.addWidget(self.delete_operator_button)
+
+        operator_form.addRow("Operador:", operator_row)
         operator_form.addRow("IF:", self.if_edit)
 
         group = QtWidgets.QGroupBox("Identificação da placa e do teste")
@@ -112,6 +124,38 @@ class RegistrationView(QtWidgets.QWidget):
         self.operator_combo.clear()
         for operator in self._operator_repo.list_all():
             self.operator_combo.addItem(operator.name, userData=operator)
+
+    def _on_delete_operator(self) -> None:
+        """Remove um cadastro duplicado/errado -- ver "duvida" do usuário
+        sobre limpar operadores/testes carregados: não existia forma de
+        fazer isso pela GUI, só editando o banco direto. Bloqueado pelo
+        próprio banco (RecordInUseError) se o operador já tiver ensaios
+        registrados -- nunca apaga histórico de teste de verdade."""
+        index = self.operator_combo.currentIndex()
+        operator: Operator | None = self.operator_combo.itemData(index) if index >= 0 else None
+        if operator is None:
+            QtWidgets.QMessageBox.warning(
+                self, "Nenhum operador selecionado",
+                "Escolha um operador já cadastrado no campo acima para excluir.",
+            )
+            return
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Confirmar exclusão",
+            f'Excluir o operador "{operator.name}" do histórico?\n\n'
+            "Só é possível se ele nunca tiver sido usado em um ensaio registrado.",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._operator_repo.delete(operator.id)
+        except RecordInUseError as exc:
+            QtWidgets.QMessageBox.warning(self, "Não é possível excluir", str(exc))
+            return
+        self.refresh_operator_history()
+        self.clear_form()
 
     def clear_form(self) -> None:
         """Deixa a Tela 1 em branco para o próximo operador (fim do ensaio)."""
