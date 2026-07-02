@@ -1,7 +1,10 @@
 """Testes de ponta a ponta do gerador de relatórios (dados reais via repositories)."""
 from __future__ import annotations
 
+import zipfile
+from dataclasses import replace
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -149,6 +152,30 @@ def test_generate_excel_report_creates_file(populated_session_id, branding, tmp_
     assert path.exists()
     assert path.suffix == ".xlsx"
     assert path.stat().st_size > 0
+
+
+def test_generate_excel_report_does_not_distort_the_logo(
+    populated_session_id, branding, tmp_path: Path
+) -> None:
+    """A logo real é landscape (~2.12:1) -- versão anterior forçava 60x60px
+    (quadrado), esticando/achatando o traço visivelmente. `openpyxl` recalcula
+    Image.width/height a partir do PNG bruto ao recarregar (ignora o extent
+    salvo), então a única forma confiável de checar o que FOI SALVO é ler o
+    <xdr:ext> do drawing XML dentro do .xlsx diretamente."""
+    real_logo = Path(__file__).resolve().parent.parent / "assets" / "branding" / "avibras_aeroco_logo.png"
+    db, session_id = populated_session_id
+    data = _data(db, session_id)
+    output_dir = tmp_path / "exports"
+
+    path = generate_excel_report(data, replace(branding, logo_path=real_logo), output_dir)
+
+    with zipfile.ZipFile(path) as archive:
+        drawing_xml = archive.read("xl/drawings/drawing1.xml")
+    ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"}
+    ext = ET.fromstring(drawing_xml).find(".//a:ext", ns)
+    saved_ratio = float(ext.get("cx")) / float(ext.get("cy"))
+
+    assert saved_ratio == pytest.approx(2.12, abs=0.05)  # não 1.0 (quadrado)
 
 
 def test_generate_word_report_creates_file(populated_session_id, branding, tmp_path: Path) -> None:

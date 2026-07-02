@@ -28,6 +28,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from reports.branding_assets import logo_aspect_height
+
 from config import BrandingConfig
 from reports.report_data import ReportData
 from reports.template_engine import (
@@ -129,9 +131,11 @@ def _build_summary_sheet(ws: Worksheet, data: ReportData, branding: BrandingConf
 
     row = 1
     if branding.logo_path.exists():
+        # Largura fixa, altura pelo aspect ratio real -- ver PDF/branding_assets.py;
+        # 60x60 fixo (versão anterior) esticava a logo landscape numa caixa quadrada.
         img = XlImage(str(branding.logo_path))
-        img.height = 60
-        img.width = 60
+        img.width = 90
+        img.height = logo_aspect_height(branding.logo_path, img.width)
         ws.add_image(img, "A1")
         row = 5
 

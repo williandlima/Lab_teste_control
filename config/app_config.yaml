@@ -94,6 +94,11 @@ logging:
 branding:
   company_name: "Avibras Aeroco"
   logo_path: "assets/branding/avibras_aeroco_logo.png"
+  # Variante de traço claro/fundo transparente, usada só no cabeçalho (fundo
+  # navy) para não aparecer com uma caixa branca por trás nem baixo contraste
+  # do traço navy original sobre fundo também navy. Relatórios continuam
+  # usando logo_path (traço navy sobre papel branco).
+  logo_header_path: "assets/branding/avibras_aeroco_logo_reversed.png"
   color_primary_navy: "#0A1F44"
   color_secondary_navy: "#14315C"
   color_accent_orange: "#FF7A29"

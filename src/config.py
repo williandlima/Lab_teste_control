@@ -104,6 +104,12 @@ class BrandingConfig:
     color_pass: str
     color_fail: str
     color_warning: str
+    # Variante "reversa" da logo (traço claro, fundo transparente) para o
+    # cabeçalho de fundo navy -- `logo_path` tem o traço navy sobre fundo
+    # branco opaco, correto para os relatórios (papel branco) mas de baixo
+    # contraste e com uma caixa branca visível sobre o cabeçalho escuro da
+    # GUI. None = sem variante configurada, cai para `logo_path` mesmo.
+    logo_header_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -215,9 +221,11 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
     )
 
     branding_raw = raw["branding"]
+    logo_header_path_raw = branding_raw.get("logo_header_path")
     branding = BrandingConfig(
         company_name=branding_raw["company_name"],
         logo_path=_project_root() / branding_raw["logo_path"],
+        logo_header_path=_project_root() / logo_header_path_raw if logo_header_path_raw else None,
         color_primary_navy=branding_raw["color_primary_navy"],
         color_secondary_navy=branding_raw["color_secondary_navy"],
         color_accent_orange=branding_raw["color_accent_orange"],

@@ -86,8 +86,14 @@ class HeaderBar(QtWidgets.QWidget):
     # -- logo ---------------------------------------------------------------
 
     def _load_logo(self, branding: BrandingConfig) -> None:
-        if branding.logo_path.exists():
-            pixmap = QtGui.QPixmap(str(branding.logo_path))
+        # logo_header_path (traço claro, fundo transparente) é feita pro
+        # cabeçalho navy -- logo_path tem fundo branco opaco e traço navy,
+        # correto no papel branco dos relatórios mas vira uma caixa branca
+        # de baixo contraste aqui. Sem a variante configurada, cai pra
+        # logo_path mesmo (melhor que nada).
+        candidate = branding.logo_header_path or branding.logo_path
+        if candidate.exists():
+            pixmap = QtGui.QPixmap(str(candidate))
             if not pixmap.isNull():
                 self.logo_label.setPixmap(
                     pixmap.scaledToHeight(44, QtCore.Qt.TransformationMode.SmoothTransformation)
