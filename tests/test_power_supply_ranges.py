@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from config import ReconnectionConfig, SerialConfig, VoltageRange
+from config import ReconnectionConfig, SerialConfig, VoltageRange, load_config
 from drivers.exceptions import InstrumentRangeOutOfBoundsError, ScpiInstrumentFaultError
 from hardware.power_supply import PowerSupplyE363x
 from tests.e363x_simulator import SimulatedE3634A
@@ -169,3 +169,43 @@ def test_switching_range_with_output_on_logs_a_warning(mocker, caplog) -> None:
         instrument.apply(26.0, 1.0)  # passo seguinte de um ensaio, saída já ligada
 
     assert any("saída ligada" in rec.message.lower() for rec in caplog.records)
+
+
+# -- Guarda de regressão: o config/app_config.yaml REAL, não os fixtures -----
+
+
+def test_shipped_config_matches_official_e3634a_range_ceilings() -> None:
+    """Trava a causa-raiz real do "-222 persiste" relatado em campo: os testes
+    acima sempre validaram a LÓGICA de seleção de faixa contra fixtures locais
+    (`_LOW`/`_HIGH`, 25V/50V) -- nunca contra o `config/app_config.yaml`
+    REALMENTE embarcado, que chegou a ter `max_voltage: 27.0` para LOW (bug
+    de digitação/estimativa, não confirmado contra o manual). Com 27.0
+    configurado, 26V "cabia" em LOW segundo o app e a faixa nunca trocava
+    para HIGH -- a fonte real, cujo teto de LOW é 25V (SCPI Command
+    Reference oficial da E3634A: LOW=P25V/7A, HIGH=P50V/4A), rejeitava com
+    -222 mesmo com a correção de seleção de faixa já implementada e ativa.
+    """
+    app_config = load_config(create_dirs=False)
+    ranges = {r.name: r for r in app_config.instrument.ranges}
+
+    assert ranges["LOW"].max_voltage == pytest.approx(25.0)
+    assert ranges["LOW"].max_current == pytest.approx(7.0)
+    assert ranges["HIGH"].max_voltage == pytest.approx(50.0)
+    assert ranges["HIGH"].max_current == pytest.approx(4.0)
+
+
+def test_apply_26v_1a_against_shipped_config_reproduces_and_fixes_field_report(mocker) -> None:
+    """Fim-a-fim com o `config/app_config.yaml` real (não fixture): repete
+    exatamente o cenário de campo -- "Saída manual" com 26V/1A, fonte
+    partindo na faixa LOW -- e confirma que a faixa HIGH é selecionada
+    automaticamente (26V > teto real de 25V da LOW), sem levantar -222."""
+    app_config = load_config(create_dirs=False)
+    holder = _patch_serial(mocker, active_range="LOW")
+    instrument = PowerSupplyE363x(
+        _serial_config(), _reconnection(), ranges=app_config.instrument.ranges
+    )
+    instrument.connect()
+
+    instrument.apply(26.0, 1.0)  # não deve levantar mais
+
+    assert holder["sim"].range_switches == ["HIGH"]
