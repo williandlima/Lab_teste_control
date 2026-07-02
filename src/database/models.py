@@ -49,6 +49,12 @@ class PowerStep:
     voltage: float
     current: float
     duration_s: float
+    # Tempo OFF (s) opcional após este passo, com a saída DESLIGADA, antes do
+    # próximo passo da sequência (ex.: ciclo térmico ON/OFF). 0 = sem pausa,
+    # segue direto para o próximo passo -- comportamento de antes desta opção.
+    # Nunca se aplica depois do ÚLTIMO passo (o desligamento de saída ao fim
+    # do ensaio já cobre isso).
+    off_duration_s: float = 0.0
 
 
 @dataclass(frozen=True)

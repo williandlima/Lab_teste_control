@@ -340,7 +340,8 @@ class TestStateMachine:
         last_capture_monotonic: float | None = None
         last_capture_step: int | None = None
 
-        for step_index, step in enumerate(self._config.steps()):
+        steps = self._config.steps()
+        for step_index, step in enumerate(steps):
             if step_index > 0:
                 try:
                     self._instrument.apply(step.voltage, step.current)
@@ -419,7 +420,46 @@ class TestStateMachine:
                 elapsed = time.monotonic() - loop_start
                 time.sleep(max(0.0, poll_interval - elapsed))
 
+            # Tempo OFF entre ciclos (opcional, por passo — seção "ciclos
+            # térmicos"): nunca depois do ÚLTIMO passo, já que o desligamento
+            # de saída ao fim do ensaio (SHUTTING_DOWN_OUTPUT) já cobre isso.
+            if step.off_duration_s > 0 and step_index < len(steps) - 1:
+                off_result = self._apply_off_period(step_index, step.off_duration_s)
+                if off_result is not None:
+                    return off_result
+
         return "completed"
+
+    def _apply_off_period(self, step_index: int, off_duration_s: float) -> str | None:
+        """Desliga a saída por `off_duration_s` antes do próximo passo.
+
+        Retorna None se completou normalmente, ou "aborted"/"comm_error" se
+        a espera foi interrompida — mesmo protocolo dos outros métodos desta
+        classe (nunca levanta, quem chama decide como encerrar o ensaio).
+        Em caso de abort, a saída já está DESLIGADA (estado seguro) — não
+        tenta religar antes de retornar, ao contrário do caminho normal.
+        """
+        self._on_event(
+            "INFO", f"Tempo OFF ({off_duration_s:.1f}s) após o passo {step_index + 1}."
+        )
+        try:
+            self._instrument.output_off()
+        except InstrumentCommunicationError as exc:
+            self._on_event("ERROR", f"Falha ao desligar saída no tempo OFF: {exc}")
+            return "comm_error"
+
+        deadline = time.monotonic() + off_duration_s
+        while time.monotonic() < deadline:
+            if self._abort_requested.is_set():
+                return "aborted"
+            time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+
+        try:
+            self._instrument.output_on()
+        except InstrumentCommunicationError as exc:
+            self._on_event("ERROR", f"Falha ao religar saída após o tempo OFF: {exc}")
+            return "comm_error"
+        return None
 
     def _should_capture(
         self,

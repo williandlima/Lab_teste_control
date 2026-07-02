@@ -28,7 +28,7 @@ class TestParametersView(QtWidgets.QWidget):
     parameters_submitted = QtCore.Signal(dict)
     back_requested = QtCore.Signal()
 
-    _COLUMN_LABELS = ("Tensão (V)", "Corrente máx. (A)", "Duração (s)")
+    _COLUMN_LABELS = ("Tensão (V)", "Corrente máx. (A)", "Duração (s)", "Tempo OFF (s)")
 
     def __init__(
         self,
@@ -154,6 +154,12 @@ class TestParametersView(QtWidgets.QWidget):
             "Sequência multi-step de potência (opcional — vazio usa o passo único acima)"
         )
         sequence_layout = QtWidgets.QVBoxLayout(sequence_group)
+        sequence_hint = QtWidgets.QLabel(
+            '"Tempo OFF": opcional, saída DESLIGADA após o passo por esse tempo antes '
+            "do próximo (ex.: ciclo térmico ON/OFF). 0 = segue direto pro próximo passo."
+        )
+        sequence_hint.setWordWrap(True)
+        sequence_layout.addWidget(sequence_hint)
         self.sequence_table = QtWidgets.QTableWidget(0, len(self._COLUMN_LABELS))
         self.sequence_table.setHorizontalHeaderLabels(self._COLUMN_LABELS)
         self.sequence_table.horizontalHeader().setStretchLastSection(True)
@@ -191,10 +197,10 @@ class TestParametersView(QtWidgets.QWidget):
         return {1.0: "s", 60.0: "min", 3600.0: "h"}[self._duration_factor]
 
     def _refresh_duration_unit(self) -> None:
-        """Atualiza sufixo do spin e o cabeçalho da coluna de duração da tabela."""
+        """Atualiza sufixo do spin e os cabeçalhos de Duração/Tempo OFF da tabela."""
         suffix = self._unit_suffix()
         self.test_duration_spin.setSuffix(f" {suffix}")
-        headers = list(self._COLUMN_LABELS[:2]) + [f"Duração ({suffix})"]
+        headers = list(self._COLUMN_LABELS[:2]) + [f"Duração ({suffix})", f"Tempo OFF ({suffix})"]
         self.sequence_table.setHorizontalHeaderLabels(headers)
 
     def _on_duration_unit_changed(self) -> None:
@@ -203,13 +209,14 @@ class TestParametersView(QtWidgets.QWidget):
         ratio = self._duration_factor / new_factor
         self.test_duration_spin.setValue(self.test_duration_spin.value() * ratio)
         for row in range(self.sequence_table.rowCount()):
-            item = self.sequence_table.item(row, 2)
-            if item is None:
-                continue
-            try:
-                item.setText(str(round(float(item.text()) * ratio, 4)))
-            except ValueError:
-                pass  # célula em edição/ inválida: deixa como está
+            for column in (2, 3):  # Duração e Tempo OFF -- as duas na mesma unidade exibida
+                item = self.sequence_table.item(row, column)
+                if item is None:
+                    continue
+                try:
+                    item.setText(str(round(float(item.text()) * ratio, 4)))
+                except ValueError:
+                    pass  # célula em edição/ inválida: deixa como está
         self._duration_factor = new_factor
         self._refresh_duration_unit()
 
@@ -258,7 +265,9 @@ class TestParametersView(QtWidgets.QWidget):
         self.test_duration_spin.setValue(config.test_duration_s / factor)
         self.sequence_table.setRowCount(0)
         for step in config.power_sequence:
-            self._append_step_row(step.voltage, step.current, step.duration_s / factor)
+            self._append_step_row(
+                step.voltage, step.current, step.duration_s / factor, step.off_duration_s / factor
+            )
         # setCurrentIndex() só emite currentIndexChanged se o índice mudou; força
         # a atualização do feedback mesmo quando a faixa carregada é a mesma que
         # já estava selecionada (ex.: "Automática" nos dois casos).
@@ -270,13 +279,17 @@ class TestParametersView(QtWidgets.QWidget):
             self.nominal_voltage_spin.value(),
             self.current_max_spin.value(),
             self.test_duration_spin.value(),
+            0.0,  # Tempo OFF: opcional, o operador edita a célula se quiser
         )
 
-    def _append_step_row(self, voltage: float, current: float, duration: float) -> None:
-        """`duration` está na unidade exibida (s/min/h); virou segundos só na leitura."""
+    def _append_step_row(
+        self, voltage: float, current: float, duration: float, off_duration: float = 0.0
+    ) -> None:
+        """`duration`/`off_duration` estão na unidade exibida (s/min/h); viram
+        segundos só na leitura (`_read_power_sequence`)."""
         row = self.sequence_table.rowCount()
         self.sequence_table.insertRow(row)
-        for column, value in enumerate((voltage, current, duration)):
+        for column, value in enumerate((voltage, current, duration, off_duration)):
             self.sequence_table.setItem(row, column, QtWidgets.QTableWidgetItem(str(value)))
         self._update_row_range_feedback(row)
 
@@ -334,13 +347,26 @@ class TestParametersView(QtWidgets.QWidget):
                 voltage = float(self.sequence_table.item(row, 0).text())
                 current = float(self.sequence_table.item(row, 1).text())
                 duration = float(self.sequence_table.item(row, 2).text())
+                off_duration = float(self.sequence_table.item(row, 3).text())
             except (AttributeError, ValueError):
                 QtWidgets.QMessageBox.warning(
                     self, "Sequência inválida", f"Linha {row + 1} da sequência tem valor inválido."
                 )
                 return None
+            if off_duration < 0:
+                QtWidgets.QMessageBox.warning(
+                    self, "Sequência inválida", f"Linha {row + 1}: Tempo OFF não pode ser negativo."
+                )
+                return None
             # Tabela em s/min/h -> PowerStep sempre em segundos.
-            steps.append(PowerStep(voltage=voltage, current=current, duration_s=duration * factor))
+            steps.append(
+                PowerStep(
+                    voltage=voltage,
+                    current=current,
+                    duration_s=duration * factor,
+                    off_duration_s=off_duration * factor,
+                )
+            )
         return steps
 
     def _on_submit(self) -> None:

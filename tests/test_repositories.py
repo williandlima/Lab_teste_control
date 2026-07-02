@@ -96,6 +96,35 @@ def test_test_parameter_config_roundtrips_forced_range_mode(db: Database) -> Non
     assert fetched.range_mode == "HIGH"
 
 
+def test_test_parameter_config_roundtrips_off_duration_per_step(db: Database) -> None:
+    """Tempo OFF entre ciclos é por PASSO (PowerStep.off_duration_s), guardado
+    dentro do JSON da sequência -- não precisa de coluna/migração própria,
+    mas precisa sobreviver ao roundtrip como qualquer outro campo do passo."""
+    board = BoardRepository(db).get_or_create("PCB-001", "PN-123", "RevA")
+    repo = TestParameterConfigRepository(db)
+    created = repo.save(
+        TestParameterConfig(
+            id=None,
+            board_id=board.id,
+            name="Ciclo térmico",
+            nominal_voltage=12.0,
+            voltage_min=11.5,
+            voltage_max=12.5,
+            current_max=2.0,
+            test_duration_s=60.0,
+            power_sequence=[
+                PowerStep(5.0, 1.0, 10.0, off_duration_s=30.0),
+                PowerStep(12.0, 2.0, 50.0),  # sem off_duration_s explícito -- default 0.0
+            ],
+        )
+    )
+    fetched = repo.get(created.id)
+    assert fetched.power_sequence == [
+        PowerStep(5.0, 1.0, 10.0, off_duration_s=30.0),
+        PowerStep(12.0, 2.0, 50.0, off_duration_s=0.0),
+    ]
+
+
 def test_test_parameter_config_save_overwrites_same_name_instead_of_duplicating(
     db: Database,
 ) -> None:

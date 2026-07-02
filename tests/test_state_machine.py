@@ -7,13 +7,16 @@ chamado antes de liberar a avaliação manual.
 """
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
 
 from core.sampling_buffer import SamplingBuffer
 from core.state_machine import TestRunConfig, TestState, TestStateMachine
-from drivers.exceptions import SerialTimeoutError
+from database.models import PowerStep
+from drivers.exceptions import InstrumentCommunicationError, SerialTimeoutError
 from hardware.power_supply import PowerSupplyE363x
 
 
@@ -284,3 +287,97 @@ def test_configure_source_forwards_automatic_range_mode_by_default() -> None:
     sm.run()
 
     instrument.set_forced_range.assert_any_call(None)
+
+
+# -- Tempo OFF entre ciclos (PowerStep.off_duration_s) ------------------------
+
+
+def test_off_duration_between_steps_turns_output_off_and_back_on() -> None:
+    """Tempo OFF entre passos: desliga a saída, espera, religa antes do
+    próximo apply() -- ex. ciclo térmico ON/OFF."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    config = _make_config(
+        power_sequence=[
+            PowerStep(voltage=5.0, current=1.0, duration_s=0.02, off_duration_s=0.02),
+            PowerStep(voltage=8.0, current=1.0, duration_s=0.02, off_duration_s=0.0),
+        ],
+    )
+    events: list[tuple[str, str]] = []
+    sm = TestStateMachine(
+        instrument, buffer, config, on_event=lambda lvl, msg: events.append((lvl, msg))
+    )
+
+    result = sm.run()
+
+    assert result == TestState.COMPLETED
+    # output_on(): 1x no início (_apply_voltage) + 1x ao religar após o tempo OFF.
+    assert instrument.output_on.call_count == 2
+    # output_off(): 1x no tempo OFF + 1x no failsafe de encerramento normal.
+    assert instrument.output_off.call_count == 2
+    assert any("tempo off" in msg.lower() for _, msg in events)
+
+
+def test_off_duration_is_never_applied_after_the_last_step() -> None:
+    """off_duration_s no ÚLTIMO passo não deve gerar pausa extra -- o
+    desligamento de saída ao fim do ensaio já cobre isso."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    config = _make_config(
+        power_sequence=[
+            PowerStep(voltage=5.0, current=1.0, duration_s=0.02, off_duration_s=5.0),  # é o último!
+        ],
+    )
+    events: list[tuple[str, str]] = []
+    sm = TestStateMachine(
+        instrument, buffer, config, on_event=lambda lvl, msg: events.append((lvl, msg))
+    )
+
+    start = time.monotonic()
+    result = sm.run()
+    elapsed = time.monotonic() - start
+
+    assert result == TestState.COMPLETED
+    assert elapsed < 2.0  # não esperou os 5s do off_duration_s do último passo
+    assert not any("tempo off" in msg.lower() for _, msg in events)
+
+
+def test_abort_during_off_period_does_not_turn_output_back_on() -> None:
+    """Abort no meio do tempo OFF: a saída já está desligada (estado seguro)
+    -- não precisa religar antes de encerrar."""
+    instrument = _make_mock_instrument()
+    buffer = _make_buffer([])
+    config = _make_config(
+        power_sequence=[
+            PowerStep(voltage=5.0, current=1.0, duration_s=0.02, off_duration_s=5.0),
+            PowerStep(voltage=8.0, current=1.0, duration_s=0.02, off_duration_s=0.0),
+        ],
+    )
+    sm = TestStateMachine(instrument, buffer, config)
+
+    def abort_soon() -> None:
+        time.sleep(0.1)
+        sm.request_abort()
+
+    threading.Thread(target=abort_soon, daemon=True).start()
+    result = sm.run()
+
+    assert result == TestState.ABORTED
+    assert instrument.output_on.call_count == 1  # só o output_on() inicial de _apply_voltage
+
+
+def test_comm_error_turning_output_off_for_the_off_period_ends_the_test() -> None:
+    instrument = _make_mock_instrument()
+    instrument.output_off.side_effect = InstrumentCommunicationError("falha simulada")
+    buffer = _make_buffer([])
+    config = _make_config(
+        power_sequence=[
+            PowerStep(voltage=5.0, current=1.0, duration_s=0.02, off_duration_s=0.02),
+            PowerStep(voltage=8.0, current=1.0, duration_s=0.02, off_duration_s=0.0),
+        ],
+    )
+    sm = TestStateMachine(instrument, buffer, config)
+
+    result = sm.run()
+
+    assert result == TestState.COMM_ERROR
