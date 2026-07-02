@@ -25,6 +25,8 @@ class HeaderBar(QtWidgets.QWidget):
     test_connection_requested = QtCore.Signal(str)
     # Pedido para abrir o controle de saída manual (teste rápido).
     manual_output_requested = QtCore.Signal()
+    # Pedido para abrir a ajuda (explicação do app de ponta a ponta).
+    help_requested = QtCore.Signal()
 
     def __init__(self, branding: BrandingConfig, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,6 +75,11 @@ class HeaderBar(QtWidgets.QWidget):
 
         self.connection_badge = StatusBadge("FONTE")
         layout.addWidget(self.connection_badge)
+
+        self.help_button = QtWidgets.QPushButton("Ajuda")
+        self.help_button.setToolTip("Como usar o app, do cadastro ao relatório final.")
+        self.help_button.clicked.connect(self.help_requested.emit)
+        layout.addWidget(self.help_button)
 
         self.refresh_ports()
 
