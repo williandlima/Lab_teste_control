@@ -16,6 +16,8 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from reports.branding_assets import logo_aspect_height
+
 _PAGE_USABLE_WIDTH = A4[0] - 2 * inch  # margens padrão do SimpleDocTemplate: 1" de cada lado
 
 
@@ -147,7 +149,12 @@ def generate_pdf_report(
 
     elements: list = []
     if branding.logo_path.exists():
-        elements.append(Image(str(branding.logo_path), width=0.8 * inch, height=0.8 * inch))
+        # Largura fixa, altura calculada pelo aspect ratio real do arquivo --
+        # a logo é landscape (~2.1:1); uma caixa quadrada fixa (versão
+        # anterior) esticava/achatava o traço visivelmente.
+        logo_width = 1.0 * inch
+        logo_height = logo_aspect_height(branding.logo_path, logo_width)
+        elements.append(Image(str(branding.logo_path), width=logo_width, height=logo_height))
         elements.append(Spacer(1, 6))
 
     elements.append(Paragraph(template["title"], title_style))
