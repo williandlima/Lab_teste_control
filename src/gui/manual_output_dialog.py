@@ -30,6 +30,8 @@ from drivers.exceptions import InstrumentCommunicationError
 from gui.widgets.range_feedback import (
     RangeFitState,
     apply_spin_feedback,
+    build_range_combo,
+    build_range_warning_label,
     evaluate_range_fit,
 )
 from gui.widgets.segment_display import SegmentDisplay
@@ -137,22 +139,11 @@ class ManualOutputDialog(QtWidgets.QDialog):
         # escolher a faixa mais "justa" que cabe no setpoint (ver
         # PowerSupplyE363x._ensure_range); escolher uma faixa nomeada trava
         # nela — o operador assume o risco de -222 se o setpoint não couber.
-        self.range_combo = QtWidgets.QComboBox()
-        self.range_combo.addItem("Automática (recomendado)", userData=None)
-        for voltage_range in instrument.ranges:
-            self.range_combo.addItem(
-                f"{voltage_range.name} — até {voltage_range.max_voltage:.2f} V / "
-                f"{voltage_range.max_current:.3f} A",
-                userData=voltage_range.name,
-            )
-        self.range_combo.setEnabled(bool(instrument.ranges))
+        self.range_combo = build_range_combo(instrument.ranges)
         setpoint_form.addRow("Faixa da fonte:", self.range_combo)
         layout.addWidget(setpoint_group)
 
-        self.range_warning_label = QtWidgets.QLabel()
-        self.range_warning_label.setWordWrap(True)
-        self.range_warning_label.setObjectName("rangeWarningLabel")
-        self.range_warning_label.setVisible(False)
+        self.range_warning_label = build_range_warning_label()
         layout.addWidget(self.range_warning_label)
 
         self.voltage_spin.valueChanged.connect(self._update_range_feedback)
@@ -310,6 +301,15 @@ class ManualOutputDialog(QtWidgets.QDialog):
         if busy:
             self.on_button.setEnabled(False)
             self.off_button.setEnabled(False)
+            # Trava os campos enquanto o worker aplica volts/amps/faixa em
+            # segundo plano: sem isto, o operador podia mudar "Faixa da
+            # fonte" (ou V/A) DURANTE o apply() em curso e o feedback visual
+            # passava a refletir a escolha nova, não a que realmente foi
+            # enviada à fonte -- confundindo o que está na tela com o que
+            # está fisicamente acontecendo no instrumento.
+            self.voltage_spin.setEnabled(False)
+            self.current_spin.setEnabled(False)
+            self.range_combo.setEnabled(False)
 
     def _shutdown(self) -> None:
         """Failsafe: para a leitura, desliga a saída e fecha a porta, sempre."""

@@ -43,6 +43,12 @@ class PowerSupplyE363x(BaseSerialInstrument):
         # _ensure_range NUNCA escolhe outra faixa sozinho, só valida que o
         # setpoint cabe na faixa forçada e levanta erro acionável se não couber.
         self._forced_range_name: str | None = None
+        # Espelha o último OUTPut:STATe que ESTE driver mandou (não sondado
+        # do instrumento) — existe só para a decisão de log em _ensure_range
+        # (avisar se uma troca de faixa acontece com a saída ligada) sem
+        # gastar um round-trip serial extra nesse caminho, que roda a cada
+        # passo de uma sequência multi-step.
+        self._output_on: bool = False
 
     @property
     def ranges(self) -> tuple[VoltageRange, ...]:
@@ -127,12 +133,21 @@ class PowerSupplyE363x(BaseSerialInstrument):
     def output_on(self) -> None:
         self.scpi.write("OUTPut:STATe ON")
         self.scpi.check_error()
+        self._output_on = True
 
     def output_off(self) -> None:
         self.scpi.write("OUTPut:STATe OFF")
         self.scpi.check_error()
+        self._output_on = False
 
     def is_output_on(self) -> bool:
+        """Sonda o estado REAL da saída via SCPI (round-trip serial).
+
+        Use isto quando precisar de certeza (ex.: diagnóstico); para uma
+        decisão interna barata (ver `_ensure_range`), prefira o cache
+        `self._output_on`, que este driver já mantém a partir de todo
+        `output_on()`/`output_off()` que ele mesmo emite.
+        """
         response = self.scpi.query("OUTPut:STATe?")
         return response.strip() in ("1", "ON")
 
@@ -188,16 +203,57 @@ class PowerSupplyE363x(BaseSerialInstrument):
             (r for r in candidates if volts <= r.max_voltage and amps <= r.max_current), None
         )
 
+    @staticmethod
+    def classify_range_fit(
+        volts: float,
+        amps: float,
+        ranges: tuple[VoltageRange, ...],
+        forced_range_name: str | None = None,
+    ) -> tuple[VoltageRange | None, VoltageRange | None, bool]:
+        """Decide qual faixa um `apply(volts, amps)` usaria, sem I/O.
+
+        Função pura — ÚNICA fonte da regra de negócio "o que cabe em qual
+        faixa", chamada tanto por `_ensure_range` (decide o que enviar/
+        levantar) quanto por `gui/widgets/range_feedback.evaluate_range_fit`
+        (decide cor/mensagem na tela). Sem isto, driver e GUI cada um
+        reimplementava a mesma comparação separadamente — bastava uma
+        diverência sutil (ex.: tratamento de nome de faixa forçada
+        inexistente) para a pré-visualização da tela mostrar "OK" num
+        setpoint que o instrumento real recusaria, ou vice-versa.
+
+        Retorna (faixa_selecionada, faixa_alternativa, faixa_forcada_existe):
+        - Automático (`forced_range_name=None`): selecionada = faixa mais
+          justa que cabe (ou None se nenhuma cabe); alternativa sempre None.
+        - Forçado e cabe: selecionada = a própria faixa forçada.
+        - Forçado e NÃO cabe (ou nome forçado não existe em `ranges`):
+          selecionada=None; alternativa = melhor faixa que serviria (ou None
+          se nada serve); `faixa_forcada_existe` diz se o nome ao menos é
+          válido, para distinguir "typo na config" de "setpoint grande demais".
+        """
+        if not ranges:
+            return None, None, True
+        if forced_range_name is not None:
+            forced = next((r for r in ranges if r.name == forced_range_name), None)
+            if forced is not None and volts <= forced.max_voltage and amps <= forced.max_current:
+                return forced, None, True
+            alternative = PowerSupplyE363x.find_fitting_range(volts, amps, ranges)
+            return None, alternative, forced is not None
+        return PowerSupplyE363x.find_fitting_range(volts, amps, ranges), None, True
+
     def _ensure_range(self, volts: float, amps: float) -> None:
         """Seleciona a faixa V/A que comporta o setpoint pedido, se preciso.
 
-        Sem isto, um `apply()`/`set_voltage()` com tensão acima do teto da
-        faixa ATIVA falha com "SCPI error -222: Data out of range" mesmo que
-        o valor caiba perfeitamente numa faixa maior nunca selecionada — o
-        app nunca mandava `VOLTage:RANGe`, então a fonte ficava na faixa que
-        já estivesse (painel frontal ou sessão anterior). Sem faixas
+        Sem isto, um `apply()` com tensão acima do teto da faixa ATIVA falha
+        com "SCPI error -222: Data out of range" mesmo que o valor caiba
+        perfeitamente numa faixa maior nunca selecionada — o app nunca
+        mandava `VOLTage:RANGe`, então a fonte ficava na faixa que já
+        estivesse (painel frontal ou sessão anterior). Sem faixas
         configuradas (`instrument.ranges` vazio), não faz nada — mantém o
         comportamento anterior para instrumentos de faixa única/não mapeados.
+        Só protege `apply()`: `set_voltage()`/`set_current()` continuam sem
+        gerenciamento de faixa (nenhum caminho do app os chama diretamente
+        hoje — se um novo caminho passar a usá-los, precisa chamar
+        `_ensure_range` também, ou passar por `apply()`).
 
         Com uma faixa FORÇADA (`set_forced_range`), a seleção automática é
         desligada: só valida que o setpoint cabe na faixa pedida pelo
@@ -206,35 +262,38 @@ class PowerSupplyE363x(BaseSerialInstrument):
         """
         if not self._ranges:
             return
-        if self._forced_range_name is not None:
-            forced = next((r for r in self._ranges if r.name == self._forced_range_name), None)
-            if forced is None:
+        selected, alternative, forced_exists = self.classify_range_fit(
+            volts, amps, self._ranges, self._forced_range_name
+        )
+        if selected is None:
+            if self._forced_range_name is not None and not forced_exists:
                 raise InstrumentRangeOutOfBoundsError(
                     f"Faixa forçada '{self._forced_range_name}' não existe em "
                     f"'instrument.ranges' (app_config.yaml)."
                 )
-            if volts > forced.max_voltage or amps > forced.max_current:
+            if self._forced_range_name is not None:
+                forced = next(r for r in self._ranges if r.name == self._forced_range_name)
                 raise InstrumentRangeOutOfBoundsError(
                     f"{volts:.2f} V / {amps:.3f} A não cabe na faixa '{forced.name}' "
                     f"(até {forced.max_voltage:.2f} V / {forced.max_current:.3f} A), que foi "
                     "forçada manualmente pelo operador. Escolha outra faixa ou volte para "
                     "'Automática'."
                 )
-            selected = forced
-        else:
-            selected = self.find_fitting_range(volts, amps, self._ranges)
-            if selected is None:
-                raise InstrumentRangeOutOfBoundsError(
-                    f"{volts:.2f} V / {amps:.3f} A não cabe em nenhuma faixa configurada da "
-                    f"fonte (ver 'instrument.ranges' em app_config.yaml)."
-                )
+            raise InstrumentRangeOutOfBoundsError(
+                f"{volts:.2f} V / {amps:.3f} A não cabe em nenhuma faixa configurada da "
+                f"fonte (ver 'instrument.ranges' em app_config.yaml)."
+            )
         if selected.name == self._active_range_name:
             return
         # Trocar de faixa com a saída ligada pode causar uma queda momentânea
         # de tensão na placa sob teste (comportamento do próprio instrumento,
         # não deste driver) — normalmente só ocorre em passos intermediários
-        # de uma sequência multi-step que atravessa duas faixas.
-        if self.is_output_on():
+        # de uma sequência multi-step que atravessa duas faixas. Usa o cache
+        # local (self._output_on) em vez de sondar OUTPut:STATe? por SCPI:
+        # essa sondagem rodaria a cada passo de uma sequência multi-step só
+        # para decidir se loga um aviso, um round-trip serial desnecessário
+        # no caminho sensível a tempo do ensaio.
+        if self._output_on:
             _logger.warning(
                 "Trocando faixa da fonte (%s -> %s) com a saída LIGADA — pode haver "
                 "queda momentânea de tensão na placa sob teste.",

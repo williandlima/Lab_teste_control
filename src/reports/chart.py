@@ -10,6 +10,10 @@ Hierarquia visual alinhada ao core do projeto:
 - Tensão: linha FINA (1.5px), eixo Y esquerdo em laranja — é o preset do
   procedimento, necessário mas não o foco;
 - Limite de corrente (current_max): linha tracejada vermelha — faixa crítica;
+  só desenhada quando cai dentro da escala visível (que acompanha a corrente
+  OBSERVADA, não o limite — ver guarda de visibilidade em
+  render_samples_chart). Num ensaio típico dentro do limite, a linha fica
+  fora do topo do gráfico por design e não aparece — não é bug;
 - Referências de tensão (voltage_min/max): linhas tracejadas laranjas — guias
   de referência, não gatilho automático de reprovação.
 """
