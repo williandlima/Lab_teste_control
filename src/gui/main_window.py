@@ -302,7 +302,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._evaluation_repo = EvaluationRepository(database)
         self._event_repo = EventLogRepository(database)
 
-        self._instrument = PowerSupplyE363x(app_config.serial, app_config.reconnection)
+        self._instrument = PowerSupplyE363x(
+            app_config.serial, app_config.reconnection, ranges=app_config.instrument.ranges
+        )
 
         self._board: Board | None = None
         self._operator: Operator | None = None

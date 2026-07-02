@@ -107,6 +107,17 @@ class BrandingConfig:
 
 
 @dataclass(frozen=True)
+class VoltageRange:
+    """Uma faixa de operação V/A da fonte (ex.: E3634A tem LOW 0-25V/7A e
+    HIGH 0-50V/4A — só uma fica ativa por vez, selecionada por
+    `VOLTage:RANGe`). `name` é o mnemônico SCPI aceito pelo instrumento
+    (LOW/HIGH ou P8V/P20V/P25V/P50V, conforme o modelo)."""
+    name: str
+    max_voltage: float
+    max_current: float
+
+
+@dataclass(frozen=True)
 class InstrumentConfig:
     """Dados de rastreabilidade da fonte física (mantidos manualmente).
 
@@ -117,6 +128,12 @@ class InstrumentConfig:
     model: str | None = None
     asset_id: str | None = None
     calibration_due: str | None = None
+    # Faixas V/A do instrumento (ver VoltageRange). Vazio = o app nunca manda
+    # VOLTage:RANGe e deixa a fonte na faixa que já estiver (comportamento
+    # anterior a esta config) — sem isso, um setpoint acima do teto da faixa
+    # ATIVA falha com "SCPI error -222: Data out of range" mesmo estando
+    # dentro do teto de uma faixa maior que nunca foi selecionada.
+    ranges: tuple[VoltageRange, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,10 +203,15 @@ def load_config(config_path: Path | None = None, create_dirs: bool = True) -> Ap
     logging_cfg = LoggingConfig(**raw["logging"])
 
     instrument_raw = raw.get("instrument", {}) or {}
+    ranges = tuple(
+        VoltageRange(name=r["name"], max_voltage=r["max_voltage"], max_current=r["max_current"])
+        for r in (instrument_raw.get("ranges") or [])
+    )
     instrument = InstrumentConfig(
         model=instrument_raw.get("model"),
         asset_id=instrument_raw.get("asset_id"),
         calibration_due=instrument_raw.get("calibration_due"),
+        ranges=ranges,
     )
 
     branding_raw = raw["branding"]

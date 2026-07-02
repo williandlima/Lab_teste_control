@@ -55,6 +55,15 @@ instrument:
   model: null            # ex.: "Keysight E3633A"
   asset_id: null         # patrimônio/etiqueta interna, ex.: "AVB-INST-0042"
   calibration_due: null  # validade da calibração, ex.: "2026-12-31"
+  # Faixas V/A da fonte (confira contra o painel/manual do SEU instrumento —
+  # os valores abaixo são os informados para a E3634A em uso). Cada ensaio
+  # troca de faixa automaticamente se o setpoint do passo não couber na faixa
+  # já ativa (evita "SCPI error -222: Data out of range" ao aplicar tensão
+  # acima do teto da faixa selecionada, mesmo cabendo numa faixa maior).
+  # Deixe [] para desligar esse gerenciamento (mantém a faixa como estiver).
+  ranges:
+    - {name: "LOW", max_voltage: 27.0, max_current: 7.0}
+    - {name: "HIGH", max_voltage: 50.0, max_current: 4.0}
 
 test_defaults:
   polling_rate_hz: 1.5

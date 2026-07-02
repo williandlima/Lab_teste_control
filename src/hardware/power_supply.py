@@ -9,14 +9,33 @@ from __future__ import annotations
 
 import logging
 
+from config import ReconnectionConfig, SerialConfig, VoltageRange
 from drivers.base_instrument import BaseSerialInstrument
-from drivers.exceptions import InstrumentCommunicationError
+from drivers.exceptions import InstrumentCommunicationError, InstrumentRangeOutOfBoundsError
 
 _logger = logging.getLogger("app")
 
 
 class PowerSupplyE363x(BaseSerialInstrument):
     """Driver para E3631A/E3632A/E3633A/E3634A (subset de comandos comum)."""
+
+    def __init__(
+        self,
+        serial_config: SerialConfig,
+        reconnection_config: ReconnectionConfig,
+        ranges: tuple[VoltageRange, ...] = (),
+    ) -> None:
+        super().__init__(serial_config, reconnection_config)
+        # Ordenadas pelo teto de tensão: a faixa mais "justa" que cobre o
+        # setpoint pedido é preferida (mais resolução), só cai pra próxima se
+        # a atual não comportar a tensão OU a corrente pedidas.
+        self._ranges = tuple(sorted(ranges, key=lambda r: r.max_voltage))
+        # None = desconhecida (nunca sondada nesta conexão) — força o 1º
+        # apply() da sessão a mandar VOLTage:RANGe mesmo que, por coincidência,
+        # a faixa desejada seja a mesma que já estava ativa fisicamente: não dá
+        # pra confiar em estado carregado de uma sessão anterior nem em ajuste
+        # manual do operador pelo painel frontal entre ensaios.
+        self._active_range_name: str | None = None
 
     def on_connected(self) -> None:
         """Valida a comunicação ANTES de entrar em modo remoto.
@@ -39,6 +58,10 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.clear_status()
         self.scpi.check_error()
         self._reset_residual_state()
+        # Idem: não confia na faixa V/A que ficou ativa de uma sessão
+        # anterior (ou de ajuste manual no painel) — força o próximo apply()
+        # a selecionar explicitamente, mesmo que calhe de ser a mesma.
+        self._active_range_name = None
 
     def _reset_residual_state(self) -> None:
         """Garante estado limpo a cada nova conexão (início de cada ensaio).
@@ -116,6 +139,43 @@ class PowerSupplyE363x(BaseSerialInstrument):
         self.scpi.write(f"VOLTage:RANGe {range_name}")
         self.scpi.check_error()
 
+    def _ensure_range(self, volts: float, amps: float) -> None:
+        """Seleciona a faixa V/A que comporta o setpoint pedido, se preciso.
+
+        Sem isto, um `apply()`/`set_voltage()` com tensão acima do teto da
+        faixa ATIVA falha com "SCPI error -222: Data out of range" mesmo que
+        o valor caiba perfeitamente numa faixa maior nunca selecionada — o
+        app nunca mandava `VOLTage:RANGe`, então a fonte ficava na faixa que
+        já estivesse (painel frontal ou sessão anterior). Sem faixas
+        configuradas (`instrument.ranges` vazio), não faz nada — mantém o
+        comportamento anterior para instrumentos de faixa única/não mapeados.
+        """
+        if not self._ranges:
+            return
+        selected = next(
+            (r for r in self._ranges if volts <= r.max_voltage and amps <= r.max_current), None
+        )
+        if selected is None:
+            raise InstrumentRangeOutOfBoundsError(
+                f"{volts:.2f} V / {amps:.3f} A não cabe em nenhuma faixa configurada da "
+                f"fonte (ver 'instrument.ranges' em app_config.yaml)."
+            )
+        if selected.name == self._active_range_name:
+            return
+        # Trocar de faixa com a saída ligada pode causar uma queda momentânea
+        # de tensão na placa sob teste (comportamento do próprio instrumento,
+        # não deste driver) — normalmente só ocorre em passos intermediários
+        # de uma sequência multi-step que atravessa duas faixas.
+        if self.is_output_on():
+            _logger.warning(
+                "Trocando faixa da fonte (%s -> %s) com a saída LIGADA — pode haver "
+                "queda momentânea de tensão na placa sob teste.",
+                self._active_range_name,
+                selected.name,
+            )
+        self.set_voltage_range(selected.name)
+        self._active_range_name = selected.name
+
     def measure_voltage(self) -> float:
         return self.scpi.query_float("MEASure:VOLTage:DC?")
 
@@ -124,6 +184,7 @@ class PowerSupplyE363x(BaseSerialInstrument):
 
     def apply(self, volts: float, amps: float) -> None:
         """APPLy — define tensão e corrente em um único comando."""
+        self._ensure_range(volts, amps)
         self.scpi.write(f"APPLy {volts:.4f},{amps:.4f}")
         self.scpi.check_error()
 
